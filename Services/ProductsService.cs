@@ -25,7 +25,7 @@ namespace MuranoApp.Services
             if (dto.Preco < 0)
                 throw new ArgumentException("Price cannot be negative.");
 
-            var product = new Product
+            var product = new Models.Product
             {
                 Nome = dto.Nome,
                 Preco = dto.Preco,
@@ -84,7 +84,7 @@ namespace MuranoApp.Services
             return true;
         }
 
-        private ProductResponseDTO ToResponse(Product product)
+        private ProductResponseDTO ToResponse(Models.Product product)
         {
             return new ProductResponseDTO
             {

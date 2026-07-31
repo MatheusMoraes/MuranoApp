@@ -54,7 +54,14 @@ namespace MuranoApp.Services
             }
 
             order.ValorTotal = total;
-
+            order.Cep = dto.Cep;
+            order.Rua = dto.Rua;
+            order.Bairro = dto.Bairro;
+            order.Cidade = dto.Cidade;
+            order.Estado = dto.Estado;
+            order.Numero = dto.Numero;
+            order.Complemento = dto.Complemento;
+            order.NomeCliente = dto.NomeCliente;
             _context.Orders.Add(order);
 
             await _context.SaveChangesAsync();
@@ -200,6 +207,14 @@ namespace MuranoApp.Services
             {
                 Id = order.Id,
                 CriadoEm = order.CriadoEm,
+                Cep = order.Cep,
+                Bairro = order.Bairro,
+                Cidade = order.Cidade,
+                Complemento = order.Complemento,
+                Estado = order.Estado,
+                NomeCliente = order.NomeCliente,
+                Numero = order.Numero,
+                Rua = order.Rua,
                 ValorTotal = order.ValorTotal,
                 Items = order.Items.Select(i => new OrderItemResponseDTO
                 {

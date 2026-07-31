@@ -1,6 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using MuranoApp.Models;
-using System.Collections.Generic;
 
 namespace MuranoApp.Data
 {
@@ -12,7 +11,6 @@ namespace MuranoApp.Data
         public DbSet<Product> Products => Set<Product>();
         public DbSet<Order> Orders => Set<Order>();
         public DbSet<OrderItem> OrderItems => Set<OrderItem>();
-
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
