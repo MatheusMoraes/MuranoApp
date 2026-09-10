@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using MuranoApp.Data;
 using MuranoApp.DTOs;
@@ -8,6 +9,7 @@ namespace MuranoApp.Controllers
 {
     [ApiController]
     [Route("api/orders")]
+    [Authorize]
     public class OrdersController : ControllerBase
     {
         private readonly AppDbContext _context;

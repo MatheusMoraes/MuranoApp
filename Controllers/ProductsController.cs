@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using MuranoApp.Data;
 using MuranoApp.DTOs;
 using MuranoApp.Services;
@@ -7,6 +8,7 @@ namespace MuranoApp.Controllers
 {
     [ApiController]
     [Route("api/products")]
+    [Authorize]
     public class ProductsController : ControllerBase
     {
         private readonly AppDbContext _context;

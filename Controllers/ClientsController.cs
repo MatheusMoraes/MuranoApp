@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MuranoApp.Data;
 using MuranoApp.DTOs;
@@ -7,6 +8,7 @@ namespace MuranoApp.Controllers
 {
     [ApiController]
     [Route("api/clients")]
+    [Authorize]
     public class ClientsController : ControllerBase
     {
         private readonly AppDbContext _context;

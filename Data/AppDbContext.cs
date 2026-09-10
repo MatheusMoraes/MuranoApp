@@ -12,6 +12,7 @@ namespace MuranoApp.Data
         public DbSet<Client> Clients => Set<Client>();
         public DbSet<Order> Orders => Set<Order>();
         public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+        public DbSet<AdminUser> AdminUsers => Set<AdminUser>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -36,6 +37,10 @@ namespace MuranoApp.Data
                 .WithMany(c => c.Orders)
                 .HasForeignKey(o => o.ClientId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<AdminUser>()
+                .HasIndex(u => u.Email)
+                .IsUnique();
         }
     }
 }

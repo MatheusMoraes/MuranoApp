@@ -7,6 +7,7 @@ namespace MuranoApp.Controllers
 {
     [ApiController]
     [Route("admin/api-block")]
+    [Authorize]
     public sealed class ApiBlockAdminController : ControllerBase
     {
         private readonly IApiBlockStateStore _store;

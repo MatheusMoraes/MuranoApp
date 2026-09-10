@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using MuranoApp.DTOs.MelhorEnvioRequest;
 using MuranoApp.Services;
 
@@ -6,6 +7,7 @@ namespace MuranoApp.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class CalculateShippingController : ControllerBase
     {
         [HttpPost]

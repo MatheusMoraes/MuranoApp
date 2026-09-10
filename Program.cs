@@ -1,4 +1,7 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using MuranoApp;
 using MuranoApp.Controllers;
 using MuranoApp.Data;
@@ -43,22 +46,73 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// CORS travado nos domínios reais do front (não dá pra usar AllowAnyOrigin
+// junto com AllowCredentials, que agora é necessário para o cookie de
+// autenticação ir/voltar nas chamadas). "AllowedOrigins" vem de config
+// (appsettings/env var) para não precisar recompilar ao trocar domínio.
+var allowedOrigins = builder.Configuration
+    .GetSection("AllowedOrigins")
+    .Get<string[]>() ?? new[]
+    {
+        "https://murano-front-livid.vercel.app",
+        "http://localhost:5173"
+    };
+
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll",
+    options.AddPolicy("Frontend",
         policy =>
         {
             policy
-                .AllowAnyOrigin()
+                .WithOrigins(allowedOrigins)
                 .AllowAnyMethod()
-                .AllowAnyHeader();
+                .AllowAnyHeader()
+                .AllowCredentials();
         });
 });
+
+// Autenticação: JWT emitido no Login e devolvido como cookie httpOnly (o
+// front nunca lê nem guarda o token). Como o token chega via cookie e não
+// via header Authorization, precisamos ensinar o middleware a procurá-lo
+// no cookie (OnMessageReceived).
+var jwtKey = builder.Configuration["Jwt:Key"]
+    ?? throw new InvalidOperationException("Jwt:Key não configurado.");
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidateAudience = true,
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromMinutes(1)
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                if (context.Request.Cookies.TryGetValue("murano_auth", out var token))
+                {
+                    context.Token = token;
+                }
+                return Task.CompletedTask;
+            }
+        };
+    });
+
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
-app.UseCors("AllowAll");
+app.UseCors("Frontend");
 app.UseMiddleware<RequestTimingMiddleware>();
 
 app.MapOpenApi();
@@ -66,6 +120,9 @@ app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseHttpsRedirection();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 
