@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using MuranoApp.Data;
 using MuranoApp.DTOs;
 using MuranoApp.Models;
@@ -19,110 +19,136 @@ namespace MuranoApp.Services
             if (dto.Items == null || !dto.Items.Any())
                 throw new ArgumentException("Order must contain at least one item.");
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            var client = await _context.Clients
+                .FirstOrDefaultAsync(c => c.Id == dto.ClientId);
 
-            var order = new Order();
-            decimal total = 0;
+            if (client == null)
+                throw new KeyNotFoundException($"Client {dto.ClientId} not found.");
 
-            foreach (var item in dto.Items)
+            // EnableRetryOnFailure exige que transações manuais sejam executadas
+            // através da execution strategy, senão o Npgsql lança
+            // InvalidOperationException ao tentar abrir a transação.
+            var strategy = _context.Database.CreateExecutionStrategy();
+
+            var createdOrderId = await strategy.ExecuteAsync(async () =>
             {
-                if (item.Quantidade <= 0)
-                    throw new ArgumentException("Quantity must be greater than zero.");
+                // Descarta qualquer estado rastreado de uma tentativa anterior
+                // (retry), evitando decrementar o estoque em dobro.
+                _context.ChangeTracker.Clear();
 
-                var product = await _context.Products
-                    .FirstOrDefaultAsync(p => p.Id == item.ProdutoId);
+                using var transaction = await _context.Database.BeginTransactionAsync();
 
-                if (product == null)
-                    throw new KeyNotFoundException($"Product {item.ProdutoId} not found.");
+                var order = new Order();
+                decimal total = 0;
 
-                if (product.Quantidade < item.Quantidade)
-                    throw new InvalidOperationException(
-                        $"Insufficient stock for {product.Nome}");
-
-                product.Quantidade -= item.Quantidade;
-
-                var orderItem = new OrderItem
+                foreach (var item in dto.Items)
                 {
-                    ProdutoId = product.Id,
-                    Quantidade = item.Quantidade,
-                    PrecoUnitario = product.Preco
-                };
+                    if (item.Quantidade <= 0)
+                        throw new ArgumentException("Quantity must be greater than zero.");
 
-                total += item.Quantidade * product.Preco;
+                    var product = await _context.Products
+                        .FirstOrDefaultAsync(p => p.Id == item.ProdutoId);
 
-                order.Items.Add(orderItem);
-            }
+                    if (product == null)
+                        throw new KeyNotFoundException($"Product {item.ProdutoId} not found.");
 
-            order.ValorTotal = total;
-            order.Cep = dto.Cep;
-            order.Rua = dto.Rua;
-            order.Bairro = dto.Bairro;
-            order.Cidade = dto.Cidade;
-            order.Estado = dto.Estado;
-            order.Numero = dto.Numero;
-            order.Complemento = dto.Complemento;
-            order.NomeCliente = dto.NomeCliente;
-            _context.Orders.Add(order);
+                    if (product.Quantidade < item.Quantidade)
+                        throw new InvalidOperationException(
+                            $"Insufficient stock for {product.Nome}");
 
-            await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
+                    product.Quantidade -= item.Quantidade;
+
+                    var precoUnitario = ResolvePrecoUnitario(product, item.Quantidade);
+
+                    var orderItem = new OrderItem
+                    {
+                        ProdutoId = product.Id,
+                        Quantidade = item.Quantidade,
+                        PrecoUnitario = precoUnitario
+                    };
+
+                    total += item.Quantidade * precoUnitario;
+
+                    order.Items.Add(orderItem);
+                }
+
+                order.ValorTotal = total;
+                order.ClientId = client.Id;
+                ApplyEndereco(order, dto.EnderecoEntrega, client);
+
+                _context.Orders.Add(order);
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return order.Id;
+            });
 
             // Reload with products for response
             var createdOrder = await _context.Orders
                 .Include(o => o.Items)
                 .ThenInclude(i => i.Produto)
-                .FirstAsync(o => o.Id == order.Id);
+                .FirstAsync(o => o.Id == createdOrderId);
 
-            return ToResponse(createdOrder);
+            return ToResponse(createdOrder, client.Nome);
         }
 
         public async Task<List<OrderResponseDTO>> GetAllAsync()
         {
             var orders = await _context.Orders
+                .Include(o => o.Client)
                 .Include(o => o.Items)
                 .ThenInclude(i => i.Produto)
                 .ToListAsync();
 
-            return orders.Select(ToResponse).ToList();
+            return orders.Select(o => ToResponse(o, o.Client.Nome)).ToList();
         }
 
         public async Task<OrderResponseDTO> GetByIdAsync(int id)
         {
             var order = await _context.Orders
+                .Include(o => o.Client)
                 .Include(o => o.Items)
                 .ThenInclude(i => i.Produto)
                 .FirstAsync(o => o.Id == id);
 
-            return ToResponse(order);
+            return ToResponse(order, order.Client.Nome);
         }
 
         public async Task DeleteAsync(int id)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            var strategy = _context.Database.CreateExecutionStrategy();
 
-            var order = await _context.Orders
-                .Include(o => o.Items)
-                .FirstOrDefaultAsync(o => o.Id == id);
-
-            if (order == null)
-                throw new KeyNotFoundException($"Order {id} not found.");
-
-            // Restore stock
-            foreach (var item in order.Items)
+            await strategy.ExecuteAsync(async () =>
             {
-                var product = await _context.Products
-                    .FirstOrDefaultAsync(p => p.Id == item.ProdutoId);
+                _context.ChangeTracker.Clear();
 
-                if (product != null)
+                using var transaction = await _context.Database.BeginTransactionAsync();
+
+                var order = await _context.Orders
+                    .Include(o => o.Items)
+                    .FirstOrDefaultAsync(o => o.Id == id);
+
+                if (order == null)
+                    throw new KeyNotFoundException($"Order {id} not found.");
+
+                // Restore stock
+                foreach (var item in order.Items)
                 {
-                    product.Quantidade += item.Quantidade;
+                    var product = await _context.Products
+                        .FirstOrDefaultAsync(p => p.Id == item.ProdutoId);
+
+                    if (product != null)
+                    {
+                        product.Quantidade += item.Quantidade;
+                    }
                 }
-            }
 
-            _context.Orders.Remove(order);
+                _context.Orders.Remove(order);
 
-            await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            });
         }
 
         public async Task<OrderResponseDTO> UpdateAsync(int id, CreateOrderDTO dto)
@@ -130,89 +156,160 @@ namespace MuranoApp.Services
             if (dto.Items == null || !dto.Items.Any())
                 throw new ArgumentException("Order must contain at least one item.");
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            var client = await _context.Clients
+                .FirstOrDefaultAsync(c => c.Id == dto.ClientId);
 
-            var order = await _context.Orders
-                .Include(o => o.Items)
-                .FirstOrDefaultAsync(o => o.Id == id);
+            if (client == null)
+                throw new KeyNotFoundException($"Client {dto.ClientId} not found.");
 
-            if (order == null)
-                throw new KeyNotFoundException($"Order {id} not found.");
+            var strategy = _context.Database.CreateExecutionStrategy();
 
-            // Restore stock from existing items
-            foreach (var existingItem in order.Items)
+            var updatedOrderId = await strategy.ExecuteAsync(async () =>
             {
-                var productToRestore = await _context.Products
-                    .FirstOrDefaultAsync(p => p.Id == existingItem.ProdutoId);
+                _context.ChangeTracker.Clear();
 
-                if (productToRestore != null)
+                using var transaction = await _context.Database.BeginTransactionAsync();
+
+                var order = await _context.Orders
+                    .Include(o => o.Items)
+                    .FirstOrDefaultAsync(o => o.Id == id);
+
+                if (order == null)
+                    throw new KeyNotFoundException($"Order {id} not found.");
+
+                // Restore stock from existing items
+                foreach (var existingItem in order.Items)
                 {
-                    productToRestore.Quantidade += existingItem.Quantidade;
+                    var productToRestore = await _context.Products
+                        .FirstOrDefaultAsync(p => p.Id == existingItem.ProdutoId);
+
+                    if (productToRestore != null)
+                    {
+                        productToRestore.Quantidade += existingItem.Quantidade;
+                    }
                 }
-            }
 
-            // Remove existing items
-            _context.OrderItems.RemoveRange(order.Items);
-            order.Items.Clear();
-            order.ValorTotal = 0;
+                // Remove existing items
+                _context.OrderItems.RemoveRange(order.Items);
+                order.Items.Clear();
+                order.ValorTotal = 0;
 
-            decimal total = 0;
+                decimal total = 0;
 
-            // Apply new items
-            foreach (var item in dto.Items)
-            {
-                if (item.Quantidade <= 0)
-                    throw new ArgumentException("Quantity must be greater than zero.");
-
-                var product = await _context.Products
-                    .FirstOrDefaultAsync(p => p.Id == item.ProdutoId);
-
-                if (product == null)
-                    throw new KeyNotFoundException($"Product {item.ProdutoId} not found.");
-
-                if (product.Quantidade < item.Quantidade)
-                    throw new InvalidOperationException(
-                        $"Insufficient stock for {product.Nome}");
-
-                product.Quantidade -= item.Quantidade;
-
-                var orderItem = new OrderItem
+                // Apply new items
+                foreach (var item in dto.Items)
                 {
-                    ProdutoId = product.Id,
-                    Quantidade = item.Quantidade,
-                    PrecoUnitario = product.Preco
-                };
+                    if (item.Quantidade <= 0)
+                        throw new ArgumentException("Quantity must be greater than zero.");
 
-                total += item.Quantidade * product.Preco;
+                    var product = await _context.Products
+                        .FirstOrDefaultAsync(p => p.Id == item.ProdutoId);
 
-                order.Items.Add(orderItem);
-            }
+                    if (product == null)
+                        throw new KeyNotFoundException($"Product {item.ProdutoId} not found.");
 
-            order.ValorTotal = total;
+                    if (product.Quantidade < item.Quantidade)
+                        throw new InvalidOperationException(
+                            $"Insufficient stock for {product.Nome}");
 
-            await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
+                    product.Quantidade -= item.Quantidade;
+
+                    var precoUnitario = ResolvePrecoUnitario(product, item.Quantidade);
+
+                    var orderItem = new OrderItem
+                    {
+                        ProdutoId = product.Id,
+                        Quantidade = item.Quantidade,
+                        PrecoUnitario = precoUnitario
+                    };
+
+                    total += item.Quantidade * precoUnitario;
+
+                    order.Items.Add(orderItem);
+                }
+
+                order.ValorTotal = total;
+                order.ClientId = client.Id;
+                ApplyEndereco(order, dto.EnderecoEntrega, client);
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return order.Id;
+            });
 
             var updatedOrder = await _context.Orders
                 .Include(o => o.Items)
                 .ThenInclude(i => i.Produto)
-                .FirstAsync(o => o.Id == order.Id);
+                .FirstAsync(o => o.Id == updatedOrderId);
 
-            return ToResponse(updatedOrder);
+            return ToResponse(updatedOrder, client.Nome);
         }
 
-        private OrderResponseDTO ToResponse(Order order)
+        // Se o produto tem preço de atacado configurado e a quantidade do
+        // item atinge o mínimo exigido, usa o preço de atacado; caso
+        // contrário, usa o preço de varejo.
+        private static decimal ResolvePrecoUnitario(Product product, int quantidade)
+        {
+            if (product.PrecoAtacado.HasValue &&
+                product.QuantidadeMinimaAtacado.HasValue &&
+                quantidade >= product.QuantidadeMinimaAtacado.Value)
+            {
+                return product.PrecoAtacado.Value;
+            }
+
+            return product.PrecoVarejo;
+        }
+
+        // Resolve o endereço de entrega do pedido: usa o informado no request
+        // ou, na ausência dele, cai para o endereço cadastrado do cliente.
+        private static void ApplyEndereco(Order order, EnderecoDTO? endereco, Client client)
+        {
+            if (endereco != null)
+            {
+                order.Cep = endereco.Cep;
+                order.Rua = endereco.Rua;
+                order.Bairro = endereco.Bairro;
+                order.Cidade = endereco.Cidade;
+                order.Estado = endereco.Estado;
+                order.Numero = endereco.Numero;
+                order.Complemento = endereco.Complemento ?? string.Empty;
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(client.Cep) ||
+                string.IsNullOrWhiteSpace(client.Rua) ||
+                string.IsNullOrWhiteSpace(client.Bairro) ||
+                string.IsNullOrWhiteSpace(client.Cidade) ||
+                string.IsNullOrWhiteSpace(client.Estado) ||
+                string.IsNullOrWhiteSpace(client.Numero))
+            {
+                throw new ArgumentException(
+                    "Client has no registered address; provide an EnderecoEntrega for this order.");
+            }
+
+            order.Cep = client.Cep;
+            order.Rua = client.Rua;
+            order.Bairro = client.Bairro;
+            order.Cidade = client.Cidade;
+            order.Estado = client.Estado;
+            order.Numero = client.Numero;
+            order.Complemento = client.Complemento ?? string.Empty;
+        }
+
+        public static OrderResponseDTO ToResponse(Order order, string nomeCliente)
         {
             return new OrderResponseDTO
             {
                 Id = order.Id,
                 CriadoEm = order.CriadoEm,
+                ClientId = order.ClientId,
+                NomeCliente = nomeCliente,
                 Cep = order.Cep,
                 Bairro = order.Bairro,
                 Cidade = order.Cidade,
                 Complemento = order.Complemento,
                 Estado = order.Estado,
-                NomeCliente = order.NomeCliente,
                 Numero = order.Numero,
                 Rua = order.Rua,
                 ValorTotal = order.ValorTotal,

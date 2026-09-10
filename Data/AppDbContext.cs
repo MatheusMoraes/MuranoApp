@@ -9,13 +9,18 @@ namespace MuranoApp.Data
             : base(options) { }
 
         public DbSet<Product> Products => Set<Product>();
+        public DbSet<Client> Clients => Set<Client>();
         public DbSet<Order> Orders => Set<Order>();
         public DbSet<OrderItem> OrderItems => Set<OrderItem>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<Product>()
-                .Property(p => p.Preco)
+                .Property(p => p.PrecoVarejo)
+                .HasPrecision(18, 2);
+
+            modelBuilder.Entity<Product>()
+                .Property(p => p.PrecoAtacado)
                 .HasPrecision(18, 2);
 
             modelBuilder.Entity<Order>()
@@ -25,6 +30,12 @@ namespace MuranoApp.Data
             modelBuilder.Entity<OrderItem>()
                 .Property(i => i.PrecoUnitario)
                 .HasPrecision(18, 2);
+
+            modelBuilder.Entity<Order>()
+                .HasOne(o => o.Client)
+                .WithMany(c => c.Orders)
+                .HasForeignKey(o => o.ClientId)
+                .OnDelete(DeleteBehavior.Restrict);
         }
     }
 }

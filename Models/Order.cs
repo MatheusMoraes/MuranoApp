@@ -1,11 +1,14 @@
-﻿namespace MuranoApp.Models
+namespace MuranoApp.Models
 {
     public class Order
-    {   
+    {
         public int Id { get; set; }
 
-        public string NomeCliente { get; set; }
+        public int ClientId { get; set; }
+        public Client Client { get; set; } = null!;
 
+        // Endereço de entrega resolvido no momento da criação do pedido
+        // (copiado do cadastro do cliente, ou informado à parte para este pedido).
         public string Cep { get; set; }
         public string Rua { get; set; }
         public string Bairro { get; set; }

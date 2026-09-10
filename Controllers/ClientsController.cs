@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using MuranoApp.Data;
 using MuranoApp.DTOs;
 using MuranoApp.Services;
@@ -6,20 +6,20 @@ using MuranoApp.Services;
 namespace MuranoApp.Controllers
 {
     [ApiController]
-    [Route("api/products")]
-    public class ProductsController : ControllerBase
+    [Route("api/clients")]
+    public class ClientsController : ControllerBase
     {
         private readonly AppDbContext _context;
 
-        public ProductsController(AppDbContext context)
+        public ClientsController(AppDbContext context)
         {
             _context = context;
         }
 
         [HttpPost]
-        public async Task<IActionResult> Create(CreateProductDTO dto)
+        public async Task<IActionResult> Create(CreateClientDTO dto)
         {
-            var service = new ProductService(_context);
+            var service = new ClientService(_context);
 
             try
             {
@@ -39,7 +39,7 @@ namespace MuranoApp.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(int id)
         {
-            var service = new ProductService(_context);
+            var service = new ClientService(_context);
 
             var result = await service.GetByIdAsync(id);
 
@@ -52,17 +52,31 @@ namespace MuranoApp.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            var service = new ProductService(_context);
+            var service = new ClientService(_context);
 
             var result = await service.GetAllAsync();
 
             return Ok(result);
         }
 
-        [HttpPut("{id}")]
-        public async Task<IActionResult> Update(int id, UpdateProductDTO dto)
+        // Cliente + histórico de pedidos, para a aba de detalhes do cliente.
+        [HttpGet("{id}/details")]
+        public async Task<IActionResult> GetDetails(int id)
         {
-            var service = new ProductService(_context);
+            var service = new ClientService(_context);
+
+            var result = await service.GetWithOrdersAsync(id);
+
+            if (result == null)
+                return NotFound();
+
+            return Ok(result);
+        }
+
+        [HttpPut("{id}")]
+        public async Task<IActionResult> Update(int id, UpdateClientDTO dto)
+        {
+            var service = new ClientService(_context);
 
             try
             {
@@ -82,14 +96,21 @@ namespace MuranoApp.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
         {
-            var service = new ProductService(_context);
+            var service = new ClientService(_context);
 
-            var deleted = await service.DeleteAsync(id);
+            try
+            {
+                var deleted = await service.DeleteAsync(id);
 
-            if (!deleted)
-                return NotFound();
+                if (!deleted)
+                    return NotFound();
 
-            return NoContent();
+                return NoContent();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
     }
 }

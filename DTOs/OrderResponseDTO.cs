@@ -1,11 +1,14 @@
-﻿namespace MuranoApp.DTOs
+namespace MuranoApp.DTOs
 {
     public class OrderResponseDTO
     {
         public int Id { get; set; }
 
         public DateTime CriadoEm { get; set; }
-        public string NomeCliente { get; set; }
+
+        public int ClientId { get; set; }
+        public string NomeCliente { get; set; } = string.Empty;
+
         public string Cep { get; set; }
         public string Rua { get; set; }
         public string Bairro { get; set; }
