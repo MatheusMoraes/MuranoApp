@@ -26,6 +26,9 @@ namespace MuranoApp.Services
             if (dto.PrecoVarejo < 0)
                 throw new ArgumentException("Price cannot be negative.");
 
+            if (dto.EstoqueMinimo is < 0)
+                throw new ArgumentException("Minimum stock cannot be negative.");
+
             ValidatePrecoAtacado(dto.PrecoVarejo, dto.PrecoAtacado, dto.QuantidadeMinimaAtacado);
             await EnsureNomeIsUniqueAsync(dto.Nome, excludeId: null);
 
@@ -35,7 +38,8 @@ namespace MuranoApp.Services
                 PrecoVarejo = dto.PrecoVarejo,
                 PrecoAtacado = dto.PrecoAtacado,
                 QuantidadeMinimaAtacado = dto.QuantidadeMinimaAtacado,
-                Quantidade = dto.Quantidade
+                Quantidade = dto.Quantidade,
+                EstoqueMinimo = dto.EstoqueMinimo
             };
 
             _context.Products.Add(product);
@@ -71,6 +75,9 @@ namespace MuranoApp.Services
             if (string.IsNullOrWhiteSpace(dto.Nome))
                 throw new ArgumentException("Name is required.");
 
+            if (dto.EstoqueMinimo is < 0)
+                throw new ArgumentException("Minimum stock cannot be negative.");
+
             ValidatePrecoAtacado(dto.PrecoVarejo, dto.PrecoAtacado, dto.QuantidadeMinimaAtacado);
             await EnsureNomeIsUniqueAsync(dto.Nome, excludeId: id);
 
@@ -79,6 +86,7 @@ namespace MuranoApp.Services
             product.PrecoAtacado = dto.PrecoAtacado;
             product.QuantidadeMinimaAtacado = dto.QuantidadeMinimaAtacado;
             product.Quantidade = dto.Quantidade;
+            product.EstoqueMinimo = dto.EstoqueMinimo;
 
             await _context.SaveChangesAsync();
 
@@ -152,6 +160,8 @@ namespace MuranoApp.Services
                 PrecoAtacado = product.PrecoAtacado,
                 QuantidadeMinimaAtacado = product.QuantidadeMinimaAtacado,
                 Quantidade = product.Quantidade,
+                EstoqueMinimo = product.EstoqueMinimo,
+                EstoqueBaixo = product.EstoqueMinimo.HasValue && product.Quantidade <= product.EstoqueMinimo.Value,
                 CriadoEm = product.CriadoEm
             };
         }

@@ -9,5 +9,6 @@ namespace MuranoApp.DTOs
         public int? QuantidadeMinimaAtacado { get; set; }
 
         public int Quantidade { get; set; }
+        public int? EstoqueMinimo { get; set; }
     }
 }

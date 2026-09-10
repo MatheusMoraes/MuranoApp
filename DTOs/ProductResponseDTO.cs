@@ -11,6 +11,10 @@ namespace MuranoApp.DTOs
         public int? QuantidadeMinimaAtacado { get; set; }
 
         public int Quantidade { get; set; }
+        public int? EstoqueMinimo { get; set; }
+        // Calculado no backend: true quando EstoqueMinimo está configurado
+        // e a quantidade em estoque já chegou nesse limite.
+        public bool EstoqueBaixo { get; set; }
 
         public DateTime CriadoEm { get; set; }
     }

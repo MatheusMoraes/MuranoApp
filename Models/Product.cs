@@ -15,6 +15,10 @@ namespace MuranoApp.Models
 
         public int Quantidade { get; set; }
 
+        // Limite pra considerar o produto com estoque baixo. Nulo = alerta
+        // desativado pra esse produto.
+        public int? EstoqueMinimo { get; set; }
+
         public DateTime CriadoEm { get; set; } = DateTime.UtcNow;
     }
 }
