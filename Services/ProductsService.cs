@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore;
 using MuranoApp.Data;
 using MuranoApp.DTOs;
 using MuranoApp.Models;
@@ -26,6 +27,7 @@ namespace MuranoApp.Services
                 throw new ArgumentException("Price cannot be negative.");
 
             ValidatePrecoAtacado(dto.PrecoVarejo, dto.PrecoAtacado, dto.QuantidadeMinimaAtacado);
+            await EnsureNomeIsUniqueAsync(dto.Nome, excludeId: null);
 
             var product = new Models.Product
             {
@@ -66,7 +68,11 @@ namespace MuranoApp.Services
             if (product == null)
                 return false;
 
+            if (string.IsNullOrWhiteSpace(dto.Nome))
+                throw new ArgumentException("Name is required.");
+
             ValidatePrecoAtacado(dto.PrecoVarejo, dto.PrecoAtacado, dto.QuantidadeMinimaAtacado);
+            await EnsureNomeIsUniqueAsync(dto.Nome, excludeId: id);
 
             product.Nome = dto.Nome;
             product.PrecoVarejo = dto.PrecoVarejo;
@@ -98,6 +104,29 @@ namespace MuranoApp.Services
 
             if (precoAtacado.Value > precoVarejo)
                 throw new ArgumentException("Wholesale price must not be greater than retail price.");
+        }
+
+        // Nomes duplicados não são permitidos, ignorando maiúsculas/minúsculas
+        // e diferenças de espaçamento ("batata quente" == "BaTaTa   QUENTE").
+        private async Task EnsureNomeIsUniqueAsync(string nome, int? excludeId)
+        {
+            var normalizado = NormalizeNome(nome);
+
+            var existentes = await _context.Products
+                .Select(p => new { p.Id, p.Nome })
+                .ToListAsync();
+
+            var duplicado = existentes.Any(p =>
+                (excludeId == null || p.Id != excludeId) &&
+                NormalizeNome(p.Nome) == normalizado);
+
+            if (duplicado)
+                throw new ArgumentException($"A product named \"{nome.Trim()}\" already exists.");
+        }
+
+        private static string NormalizeNome(string nome)
+        {
+            return Regex.Replace(nome.Trim(), @"\s+", " ").ToLowerInvariant();
         }
 
         public async Task<bool> DeleteAsync(int id)
