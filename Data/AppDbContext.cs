@@ -48,6 +48,16 @@ namespace MuranoApp.Data
                 .WithMany(c => c.Products)
                 .HasForeignKey(p => p.CategoriaId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // Produto pode ser excluído mesmo com pedidos associados — o
+            // item do pedido só perde a referência viva (fica com
+            // ProdutoId nulo) e continua existindo com o NomeProduto
+            // salvo no momento da compra.
+            modelBuilder.Entity<OrderItem>()
+                .HasOne(i => i.Produto)
+                .WithMany()
+                .HasForeignKey(i => i.ProdutoId)
+                .OnDelete(DeleteBehavior.SetNull);
         }
     }
 }

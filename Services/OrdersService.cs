@@ -63,6 +63,7 @@ namespace MuranoApp.Services
                     var orderItem = new OrderItem
                     {
                         ProdutoId = product.Id,
+                        NomeProduto = product.Nome,
                         Quantidade = item.Quantidade,
                         PrecoUnitario = precoUnitario
                     };
@@ -87,7 +88,6 @@ namespace MuranoApp.Services
             // Reload with products for response
             var createdOrder = await _context.Orders
                 .Include(o => o.Items)
-                .ThenInclude(i => i.Produto)
                 .FirstAsync(o => o.Id == createdOrderId);
 
             return ToResponse(createdOrder, client.Nome);
@@ -98,19 +98,20 @@ namespace MuranoApp.Services
             var orders = await _context.Orders
                 .Include(o => o.Client)
                 .Include(o => o.Items)
-                .ThenInclude(i => i.Produto)
                 .ToListAsync();
 
             return orders.Select(o => ToResponse(o, o.Client.Nome)).ToList();
         }
 
-        public async Task<OrderResponseDTO> GetByIdAsync(int id)
+        public async Task<OrderResponseDTO?> GetByIdAsync(int id)
         {
             var order = await _context.Orders
                 .Include(o => o.Client)
                 .Include(o => o.Items)
-                .ThenInclude(i => i.Produto)
-                .FirstAsync(o => o.Id == id);
+                .FirstOrDefaultAsync(o => o.Id == id);
+
+            if (order == null)
+                return null;
 
             return ToResponse(order, order.Client.Nome);
         }
@@ -132,9 +133,13 @@ namespace MuranoApp.Services
                 if (order == null)
                     throw new KeyNotFoundException($"Order {id} not found.");
 
-                // Restore stock
+                // Restore stock (item.ProdutoId pode ser nulo se o produto
+                // já foi excluído — nesse caso não tem o que repor).
                 foreach (var item in order.Items)
                 {
+                    if (item.ProdutoId == null)
+                        continue;
+
                     var product = await _context.Products
                         .FirstOrDefaultAsync(p => p.Id == item.ProdutoId);
 
@@ -177,9 +182,13 @@ namespace MuranoApp.Services
                 if (order == null)
                     throw new KeyNotFoundException($"Order {id} not found.");
 
-                // Restore stock from existing items
+                // Restore stock from existing items (ProdutoId pode ser
+                // nulo se o produto já foi excluído).
                 foreach (var existingItem in order.Items)
                 {
+                    if (existingItem.ProdutoId == null)
+                        continue;
+
                     var productToRestore = await _context.Products
                         .FirstOrDefaultAsync(p => p.Id == existingItem.ProdutoId);
 
@@ -219,6 +228,7 @@ namespace MuranoApp.Services
                     var orderItem = new OrderItem
                     {
                         ProdutoId = product.Id,
+                        NomeProduto = product.Nome,
                         Quantidade = item.Quantidade,
                         PrecoUnitario = precoUnitario
                     };
@@ -240,7 +250,6 @@ namespace MuranoApp.Services
 
             var updatedOrder = await _context.Orders
                 .Include(o => o.Items)
-                .ThenInclude(i => i.Produto)
                 .FirstAsync(o => o.Id == updatedOrderId);
 
             return ToResponse(updatedOrder, client.Nome);
@@ -316,7 +325,7 @@ namespace MuranoApp.Services
                 Items = order.Items.Select(i => new OrderItemResponseDTO
                 {
                     ProdutoId = i.ProdutoId,
-                    NomeProduto = i.Produto.Nome,
+                    NomeProduto = i.NomeProduto,
                     Quantidade = i.Quantidade,
                     PrecoUnitario = i.PrecoUnitario
                 }).ToList()

@@ -2,7 +2,7 @@
 {
     public class OrderItemResponseDTO
     {
-        public int ProdutoId { get; set; }
+        public int? ProdutoId { get; set; }
 
         public string NomeProduto { get; set; } = string.Empty;
 
