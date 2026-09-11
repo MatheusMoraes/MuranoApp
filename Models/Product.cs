@@ -6,6 +6,11 @@ namespace MuranoApp.Models
 
         public string Nome { get; set; } = string.Empty;
 
+        // Todo produto pertence a uma categoria — usado pra filtro/busca na
+        // tela de produtos.
+        public int CategoriaId { get; set; }
+        public Category Categoria { get; set; } = null!;
+
         public decimal PrecoVarejo { get; set; }
 
         // Preço e quantidade mínima para venda no atacado. Ambos nulos
@@ -18,6 +23,13 @@ namespace MuranoApp.Models
         // Limite pra considerar o produto com estoque baixo. Nulo = alerta
         // desativado pra esse produto.
         public int? EstoqueMinimo { get; set; }
+
+        // Guardamos só a referência (URL) — os bytes da imagem ficam na
+        // Cloudinary, não no Postgres. ImagemPublicId é o identificador da
+        // Cloudinary pro arquivo, usado pra conseguir apagar/trocar a
+        // imagem depois sem deixar lixo órfão na conta.
+        public string? ImagemUrl { get; set; }
+        public string? ImagemPublicId { get; set; }
 
         public DateTime CriadoEm { get; set; } = DateTime.UtcNow;
     }

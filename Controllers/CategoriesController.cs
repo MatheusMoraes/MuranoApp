@@ -7,23 +7,21 @@ using MuranoApp.Services;
 namespace MuranoApp.Controllers
 {
     [ApiController]
-    [Route("api/products")]
+    [Route("api/categories")]
     [Authorize]
-    public class ProductsController : ControllerBase
+    public class CategoriesController : ControllerBase
     {
         private readonly AppDbContext _context;
-        private readonly IConfiguration _configuration;
 
-        public ProductsController(AppDbContext context, IConfiguration configuration)
+        public CategoriesController(AppDbContext context)
         {
             _context = context;
-            _configuration = configuration;
         }
 
         [HttpPost]
-        public async Task<IActionResult> Create(CreateProductDTO dto)
+        public async Task<IActionResult> Create(CreateCategoryDTO dto)
         {
-            var service = new ProductService(_context);
+            var service = new CategoryService(_context);
 
             try
             {
@@ -34,10 +32,6 @@ namespace MuranoApp.Controllers
                     new { id = result.Id },
                     result);
             }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(ex.Message);
-            }
             catch (ArgumentException ex)
             {
                 return BadRequest(ex.Message);
@@ -47,7 +41,7 @@ namespace MuranoApp.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(int id)
         {
-            var service = new ProductService(_context);
+            var service = new CategoryService(_context);
 
             var result = await service.GetByIdAsync(id);
 
@@ -60,7 +54,7 @@ namespace MuranoApp.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            var service = new ProductService(_context);
+            var service = new CategoryService(_context);
 
             var result = await service.GetAllAsync();
 
@@ -68,9 +62,9 @@ namespace MuranoApp.Controllers
         }
 
         [HttpPut("{id}")]
-        public async Task<IActionResult> Update(int id, UpdateProductDTO dto)
+        public async Task<IActionResult> Update(int id, UpdateCategoryDTO dto)
         {
-            var service = new ProductService(_context, new CloudinaryService(_configuration));
+            var service = new CategoryService(_context);
 
             try
             {
@@ -81,10 +75,6 @@ namespace MuranoApp.Controllers
 
                 return NoContent();
             }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(ex.Message);
-            }
             catch (ArgumentException ex)
             {
                 return BadRequest(ex.Message);
@@ -94,31 +84,18 @@ namespace MuranoApp.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
         {
-            var service = new ProductService(_context, new CloudinaryService(_configuration));
-
-            var deleted = await service.DeleteAsync(id);
-
-            if (!deleted)
-                return NotFound();
-
-            return NoContent();
-        }
-
-        // Upload fica separado do Create/Update: o front sobe a imagem
-        // primeiro, recebe a URL/publicId de volta, e só então inclui isso
-        // no payload de criar/editar o produto.
-        [HttpPost("upload-image")]
-        [RequestSizeLimit(5 * 1024 * 1024)]
-        public async Task<IActionResult> UploadImage(IFormFile file)
-        {
-            var cloudinaryService = new CloudinaryService(_configuration);
+            var service = new CategoryService(_context);
 
             try
             {
-                var result = await cloudinaryService.UploadProductImageAsync(file);
-                return Ok(result);
+                var deleted = await service.DeleteAsync(id);
+
+                if (!deleted)
+                    return NotFound();
+
+                return NoContent();
             }
-            catch (ArgumentException ex)
+            catch (InvalidOperationException ex)
             {
                 return BadRequest(ex.Message);
             }

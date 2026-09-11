@@ -9,6 +9,7 @@ namespace MuranoApp.Data
             : base(options) { }
 
         public DbSet<Product> Products => Set<Product>();
+        public DbSet<Category> Categories => Set<Category>();
         public DbSet<Client> Clients => Set<Client>();
         public DbSet<Order> Orders => Set<Order>();
         public DbSet<OrderItem> OrderItems => Set<OrderItem>();
@@ -41,6 +42,12 @@ namespace MuranoApp.Data
             modelBuilder.Entity<AdminUser>()
                 .HasIndex(u => u.Email)
                 .IsUnique();
+
+            modelBuilder.Entity<Product>()
+                .HasOne(p => p.Categoria)
+                .WithMany(c => c.Products)
+                .HasForeignKey(p => p.CategoriaId)
+                .OnDelete(DeleteBehavior.Restrict);
         }
     }
 }
