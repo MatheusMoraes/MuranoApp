@@ -49,6 +49,17 @@ namespace MuranoApp.Data
                 .HasForeignKey(p => p.CategoriaId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // Índice único sobre o nome normalizado — checagem de duplicidade
+            // de Product/Category vira uma busca indexada em vez de carregar
+            // a tabela inteira pra memória a cada criação/edição.
+            modelBuilder.Entity<Product>()
+                .HasIndex(p => p.NomeNormalizado)
+                .IsUnique();
+
+            modelBuilder.Entity<Category>()
+                .HasIndex(c => c.NomeNormalizado)
+                .IsUnique();
+
             // Produto pode ser excluído mesmo com pedidos associados — o
             // item do pedido só perde a referência viva (fica com
             // ProdutoId nulo) e continua existindo com o NomeProduto

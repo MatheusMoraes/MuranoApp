@@ -6,6 +6,12 @@ namespace MuranoApp.Models
 
         public string Nome { get; set; } = string.Empty;
 
+        // Nome normalizado (trim + espaços colapsados + minúsculo) usado
+        // pra checar duplicidade via índice único no banco, em vez de
+        // carregar a tabela inteira pra memória a cada criação/edição.
+        // Ver NameNormalizer.
+        public string NomeNormalizado { get; set; } = string.Empty;
+
         // Todo produto pertence a uma categoria — usado pra filtro/busca na
         // tela de produtos.
         public int CategoriaId { get; set; }

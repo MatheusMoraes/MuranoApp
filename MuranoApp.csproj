@@ -8,6 +8,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- MuranoApp.Tests vive numa subpasta deste projeto; sem isso, o glob
+         padrão do SDK ("**/*.cs") faria o próprio MuranoApp.csproj tentar
+         compilar os arquivos de teste (que referenciam Xunit, não
+         disponível aqui), duplicando-os também na compilação do projeto de
+         testes. -->
+    <Compile Remove="MuranoApp.Tests/**/*.cs" />
+    <Content Remove="MuranoApp.Tests/**/*" />
+    <None Remove="MuranoApp.Tests/**/*" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="CloudinaryDotNet" Version="1.29.3" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.13" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.11" />

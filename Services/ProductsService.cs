@@ -1,8 +1,8 @@
-﻿using System.Text.RegularExpressions;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using MuranoApp.Data;
 using MuranoApp.DTOs;
 using MuranoApp.Models;
+using Npgsql;
 
 namespace MuranoApp.Services
 {
@@ -45,6 +45,7 @@ namespace MuranoApp.Services
             var product = new Models.Product
             {
                 Nome = dto.Nome,
+                NomeNormalizado = NameNormalizer.Normalize(dto.Nome),
                 CategoriaId = dto.CategoriaId,
                 Categoria = categoria,
                 PrecoVarejo = dto.PrecoVarejo,
@@ -57,7 +58,7 @@ namespace MuranoApp.Services
             };
 
             _context.Products.Add(product);
-            await _context.SaveChangesAsync();
+            await TrySaveOrThrowDuplicateAsync(dto.Nome);
 
             return ToResponse(product);
         }
@@ -112,6 +113,7 @@ namespace MuranoApp.Services
             }
 
             product.Nome = dto.Nome;
+            product.NomeNormalizado = NameNormalizer.Normalize(dto.Nome);
             product.CategoriaId = dto.CategoriaId;
             product.PrecoVarejo = dto.PrecoVarejo;
             product.PrecoAtacado = dto.PrecoAtacado;
@@ -121,7 +123,7 @@ namespace MuranoApp.Services
             product.ImagemUrl = dto.ImagemUrl;
             product.ImagemPublicId = dto.ImagemPublicId;
 
-            await _context.SaveChangesAsync();
+            await TrySaveOrThrowDuplicateAsync(dto.Nome);
 
             return true;
         }
@@ -166,25 +168,41 @@ namespace MuranoApp.Services
 
         // Nomes duplicados não são permitidos, ignorando maiúsculas/minúsculas
         // e diferenças de espaçamento ("batata quente" == "BaTaTa   QUENTE").
+        // Checagem via índice único (NomeNormalizado) em vez de carregar a
+        // tabela inteira — a validação abaixo cobre o caso comum com uma
+        // mensagem amigável; TrySaveOrThrowDuplicateAsync é a rede de
+        // segurança contra corrida (duas criações simultâneas com o mesmo
+        // nome), que só o índice do banco consegue pegar de fato.
         private async Task EnsureNomeIsUniqueAsync(string nome, int? excludeId)
         {
-            var normalizado = NormalizeNome(nome);
+            var normalizado = NameNormalizer.Normalize(nome);
 
-            var existentes = await _context.Products
-                .Select(p => new { p.Id, p.Nome })
-                .ToListAsync();
-
-            var duplicado = existentes.Any(p =>
-                (excludeId == null || p.Id != excludeId) &&
-                NormalizeNome(p.Nome) == normalizado);
+            var duplicado = await _context.Products
+                .AnyAsync(p => p.NomeNormalizado == normalizado && (excludeId == null || p.Id != excludeId));
 
             if (duplicado)
                 throw new ArgumentException($"A product named \"{nome.Trim()}\" already exists.");
         }
 
-        private static string NormalizeNome(string nome)
+        // Rede de segurança: se duas requisições passarem pela checagem acima
+        // ao mesmo tempo (corrida), o índice único do Postgres rejeita a
+        // segunda gravação — aqui a exceção genérica do EF vira uma
+        // ArgumentException amigável, igual à validação em memória.
+        private async Task TrySaveOrThrowDuplicateAsync(string nome)
         {
-            return Regex.Replace(nome.Trim(), @"\s+", " ").ToLowerInvariant();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+            {
+                throw new ArgumentException($"A product named \"{nome.Trim()}\" already exists.");
+            }
+        }
+
+        private static bool IsUniqueViolation(DbUpdateException ex)
+        {
+            return ex.InnerException is PostgresException { SqlState: "23505" };
         }
 
         public async Task<bool> DeleteAsync(int id)

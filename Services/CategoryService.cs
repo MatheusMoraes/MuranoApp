@@ -1,8 +1,8 @@
-using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using MuranoApp.Data;
 using MuranoApp.DTOs;
 using MuranoApp.Models;
+using Npgsql;
 
 namespace MuranoApp.Services
 {
@@ -25,11 +25,12 @@ namespace MuranoApp.Services
             var category = new Category
             {
                 Nome = dto.Nome,
+                NomeNormalizado = NameNormalizer.Normalize(dto.Nome),
                 Descricao = dto.Descricao
             };
 
             _context.Categories.Add(category);
-            await _context.SaveChangesAsync();
+            await TrySaveOrThrowDuplicateAsync(dto.Nome);
 
             return ToResponse(category);
         }
@@ -66,9 +67,10 @@ namespace MuranoApp.Services
             await EnsureNomeIsUniqueAsync(dto.Nome, excludeId: id);
 
             category.Nome = dto.Nome;
+            category.NomeNormalizado = NameNormalizer.Normalize(dto.Nome);
             category.Descricao = dto.Descricao;
 
-            await _context.SaveChangesAsync();
+            await TrySaveOrThrowDuplicateAsync(dto.Nome);
 
             return true;
         }
@@ -93,26 +95,35 @@ namespace MuranoApp.Services
         }
 
         // Mesma regra usada pra nome de produto: ignora maiúsculas/minúsculas
-        // e diferenças de espaçamento.
+        // e diferenças de espaçamento, e usa o índice único (NomeNormalizado)
+        // em vez de carregar a tabela inteira. TrySaveOrThrowDuplicateAsync é
+        // a rede de segurança contra corrida.
         private async Task EnsureNomeIsUniqueAsync(string nome, int? excludeId)
         {
-            var normalizado = NormalizeNome(nome);
+            var normalizado = NameNormalizer.Normalize(nome);
 
-            var existentes = await _context.Categories
-                .Select(c => new { c.Id, c.Nome })
-                .ToListAsync();
-
-            var duplicado = existentes.Any(c =>
-                (excludeId == null || c.Id != excludeId) &&
-                NormalizeNome(c.Nome) == normalizado);
+            var duplicado = await _context.Categories
+                .AnyAsync(c => c.NomeNormalizado == normalizado && (excludeId == null || c.Id != excludeId));
 
             if (duplicado)
                 throw new ArgumentException($"A category named \"{nome.Trim()}\" already exists.");
         }
 
-        private static string NormalizeNome(string nome)
+        private async Task TrySaveOrThrowDuplicateAsync(string nome)
         {
-            return Regex.Replace(nome.Trim(), @"\s+", " ").ToLowerInvariant();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+            {
+                throw new ArgumentException($"A category named \"{nome.Trim()}\" already exists.");
+            }
+        }
+
+        private static bool IsUniqueViolation(DbUpdateException ex)
+        {
+            return ex.InnerException is PostgresException { SqlState: "23505" };
         }
 
         private static CategoryResponseDTO ToResponse(Category category)

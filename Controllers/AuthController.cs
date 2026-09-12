@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using MuranoApp.Data;
 using MuranoApp.DTOs;
 using MuranoApp.Services;
@@ -26,6 +27,7 @@ namespace MuranoApp.Controllers
 
         [HttpPost("Login")]
         [AllowAnonymous]
+        [EnableRateLimiting("login")]
         public async Task<IActionResult> Login(LoginDTO dto)
         {
             var service = new AuthService(_context, _configuration);
