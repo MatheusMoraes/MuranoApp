@@ -16,6 +16,7 @@ namespace MuranoApp.DTOs
         public List<TopClienteDTO> TopClientes { get; set; } = new();
         public List<TopProdutoDTO> TopProdutos { get; set; } = new();
         public List<ReceitaPorCategoriaDTO> ReceitaPorCategoria { get; set; } = new();
+        public List<TopProdutoCaroDTO> ProdutosMaisCarosVendidos { get; set; } = new();
     }
 
     public class TopClienteDTO
@@ -41,5 +42,19 @@ namespace MuranoApp.DTOs
     {
         public string CategoriaNome { get; set; } = string.Empty;
         public decimal ReceitaTotal { get; set; }
+    }
+
+    // Top 5 produtos de maior preço de varejo dentre os que já venderam
+    // pelo menos uma unidade — diferente de TopProdutoDTO (ordenado por
+    // quantidade vendida), este ranking mostra se os itens premium do
+    // catálogo estão de fato girando. Só considera produtos que ainda
+    // existem no cadastro (preço atual), então fica de fora quem já foi
+    // excluído.
+    public class TopProdutoCaroDTO
+    {
+        public int ProdutoId { get; set; }
+        public string Nome { get; set; } = string.Empty;
+        public decimal PrecoVarejo { get; set; }
+        public int QuantidadeVendida { get; set; }
     }
 }

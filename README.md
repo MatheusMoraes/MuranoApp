@@ -39,9 +39,21 @@ Novo endpoint `GET /api/dashboard` (autenticado), com serviço `DashboardService
 
 A ordenação final dos rankings é feita em memória (depois de trazer os dados agregados do banco) em vez de via `ORDER BY` no SQL — o SQLite (usado nos testes automatizados) não traduz ordenação sobre coluna `decimal`, e como o volume de pedidos de uma loja pequena é baixo, não há custo real em ordenar client-side. O ganho é rodar de forma idêntica em qualquer provider.
 
-No front-end, `pages/DashboardPage.tsx` (rota `/dashboard`, link no menu) exibe os KPIs como *stat tiles* e os rankings como barras horizontais de um único tom (dourado da marca), com o valor de cada barra sempre exibido como texto ao lado.
+No front-end, `pages/DashboardPage.tsx` (rota `/`, padrão após login, link no menu) exibe os KPIs como *stat tiles* e os rankings como barras horizontais de um único tom (dourado da marca), com o valor de cada barra sempre exibido como texto ao lado.
 
 **Arquivos:** `DTOs/DashboardResponseDTO.cs`, `Services/DashboardService.cs`, `Controllers/DashboardController.cs` (backend); `src/types/dashboard.ts`, `src/pages/DashboardPage.tsx`, `src/App.tsx`, `src/index.css` (front-end).
+
+### 2.1 Receita por período
+
+Card dedicado no dashboard com o histórico de receita ao longo do tempo, filtrável por `GET /api/dashboard/revenue?period=<chave>`.
+
+- **Períodos aceitos:** `30d` (padrão), `60d`, `90d`, `trimestre` (3 meses), `semestre` (6 meses), `ano` (12 meses).
+- **Granularidade automática por período** (`DashboardService.Periodos`): 30/60/90 dias agrupam por dia; trimestre/semestre por janelas de 7 dias; ano por mês calendário — evita um gráfico com 365 pontos diários ilegível, sem exigir nada do front além de trocar o filtro.
+- Buckets sem pedido entram com receita 0 (não pulam a data), mantendo o eixo X contínuo.
+- Agrupamento feito em memória (não via `GROUP BY` no SQL) pelo mesmo motivo dos rankings acima: portabilidade entre Postgres (produção) e SQLite (testes), com custo desprezível dado o volume de uma loja pequena.
+- No front-end, `src/components/RevenueByPeriodCard.tsx` renderiza um gráfico de linha/área em SVG puro (sem biblioteca de gráficos), com filtro em pílulas, crosshair + tooltip no hover (mouse e teclado, setas ← →), marcador no último ponto e alternância para visualizar os mesmos dados como tabela — sem depender só de cor pra transmitir a informação.
+
+**Arquivos:** `DTOs/RevenueByPeriodDTO.cs`, `Services/DashboardService.cs` (`GetRevenueByPeriodAsync`), `Controllers/DashboardController.cs` (backend); `src/types/dashboard.ts`, `src/components/RevenueByPeriodCard.tsx`, `src/pages/DashboardPage.tsx`, `src/index.css` (front-end).
 
 ## 3. Filtro e listagem de Pedidos
 
@@ -68,12 +80,12 @@ Novo projeto `MuranoApp.Tests` (xUnit), referenciando `MuranoApp.csproj` e usand
 
 Cada classe de teste abre sua própria conexão SQLite `:memory:` (mantida viva durante o teste via `SqliteContextFixture`, já que o banco `:memory:` do SQLite desaparece quando a conexão fecha) — como o xUnit instancia a classe de teste uma vez por `[Fact]`/`[Theory]`, cada teste roda isolado, sem estado compartilhado entre eles.
 
-**Cobertura (30 testes):**
+**Cobertura (33 testes):**
 - `NameNormalizerTests`: normalização de nome (trim, espaços, caixa).
 - `ProductServiceTests`: nome normalizado preenchido ao criar; rejeição de nome duplicado (ignorando caixa/espaços); permitir manter o próprio nome ao editar; validação de preço de atacado (não pode exceder o varejo, precisa vir com quantidade mínima); categoria inexistente.
 - `CategoryServiceTests`: nome normalizado preenchido ao criar; rejeição de nome duplicado; exclusão bloqueada quando há produtos associados; exclusão permitida quando não há.
 - `OrderServiceTests`: decremento de estoque ao criar pedido; resolução de preço varejo vs. atacado (abaixo e no limite da quantidade mínima); erro de estoque insuficiente; erro de cliente/produto inexistente; erro quando cliente não tem endereço cadastrado e nenhum é informado; uso do endereço informado no pedido; restauração de estoque ao excluir pedido; exclusão de pedido não quebra quando o produto do item já foi excluído (`ProdutoId` nulo); ajuste de estoque correto ao editar um pedido existente.
-- `DashboardServiceTests`: retorno zerado sem pedidos; ranking de clientes por número de pedidos; produto excluído continua contabilizado no ranking via `NomeProduto`.
+- `DashboardServiceTests`: retorno zerado sem pedidos; ranking de clientes por número de pedidos; produto excluído continua contabilizado no ranking via `NomeProduto`; receita por período rejeita período inválido; `30d` agrupa por dia e ignora pedidos fora da janela; `ano` agrupa por mês.
 
 **Rodando os testes:**
 ```bash

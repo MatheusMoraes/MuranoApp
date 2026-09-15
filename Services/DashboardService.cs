@@ -95,6 +95,31 @@ namespace MuranoApp.Services
                 .OrderByDescending(c => c.ReceitaTotal)
                 .ToList();
 
+            // Produtos mais caros vendidos: entre os que já venderam pelo
+            // menos 1 unidade, os 5 de maior preço de varejo atual —
+            // diferente do ranking por quantidade vendida acima, esse mostra
+            // se os itens premium do catálogo também estão girando. Só
+            // produtos que ainda existem no cadastro (preço atual
+            // disponível); os excluídos ficam de fora dessa métrica
+            // específica, igual à receita por categoria.
+            var produtosMaisCarosRaw = await _context.OrderItems
+                .Where(i => i.ProdutoId != null)
+                .GroupBy(i => new { ProdutoId = i.ProdutoId!.Value, i.Produto!.Nome, i.Produto.PrecoVarejo })
+                .Select(g => new TopProdutoCaroDTO
+                {
+                    ProdutoId = g.Key.ProdutoId,
+                    Nome = g.Key.Nome,
+                    PrecoVarejo = g.Key.PrecoVarejo,
+                    QuantidadeVendida = g.Sum(i => i.Quantidade)
+                })
+                .ToListAsync();
+
+            var produtosMaisCarosVendidos = produtosMaisCarosRaw
+                .OrderByDescending(p => p.PrecoVarejo)
+                .ThenByDescending(p => p.QuantidadeVendida)
+                .Take(TopN)
+                .ToList();
+
             return new DashboardResponseDTO
             {
                 TotalPedidos = totalPedidos,
@@ -105,8 +130,146 @@ namespace MuranoApp.Services
                 ProdutosComEstoqueBaixo = produtosComEstoqueBaixo,
                 TopClientes = topClientes,
                 TopProdutos = topProdutos,
-                ReceitaPorCategoria = receitaPorCategoria
+                ReceitaPorCategoria = receitaPorCategoria,
+                ProdutosMaisCarosVendidos = produtosMaisCarosVendidos
             };
         }
+
+        // Períodos aceitos pelo card "Receita por período" do dashboard, e a
+        // granularidade de agrupamento de cada um — quanto maior o período,
+        // mais grossa a granularidade, pra manter o gráfico legível (um ano
+        // em pontos diários teria 365 pontos; em pontos mensais, ~12).
+        private static readonly Dictionary<string, (int? dias, int? meses, string granularidade)> Periodos = new()
+        {
+            ["30d"] = (30, null, "dia"),
+            ["60d"] = (60, null, "dia"),
+            ["90d"] = (90, null, "dia"),
+            ["trimestre"] = (null, 3, "semana"),
+            ["semestre"] = (null, 6, "semana"),
+            ["ano"] = (null, 12, "mes"),
+        };
+
+        public async Task<RevenueByPeriodResponseDTO> GetRevenueByPeriodAsync(string periodo)
+        {
+            if (!Periodos.TryGetValue(periodo, out var config))
+                throw new ArgumentException(
+                    $"Período inválido: \"{periodo}\". Use um de: {string.Join(", ", Periodos.Keys)}.");
+
+            var hoje = DateTime.UtcNow.Date;
+            var dataFimExclusiva = hoje.AddDays(1);
+            var dataInicio = config.dias.HasValue
+                ? hoje.AddDays(-(config.dias.Value - 1))
+                : hoje.AddMonths(-config.meses!.Value);
+
+            // Busca tudo no intervalo de uma vez e agrupa em memória — o
+            // volume de pedidos de uma loja pequena, mesmo num ano inteiro,
+            // é baixo o bastante pra isso não pesar, e evita depender de
+            // tradução de agrupamento por data específica de cada provider
+            // (Postgres em produção, SQLite nos testes automatizados).
+            var orders = await _context.Orders
+                .Where(o => o.CriadoEm >= dataInicio && o.CriadoEm < dataFimExclusiva)
+                .Select(o => new OrderRevenueRow(o.CriadoEm, o.ValorTotal))
+                .ToListAsync();
+
+            var pontos = config.granularidade switch
+            {
+                "semana" => BucketPorSemana(orders, dataInicio, dataFimExclusiva),
+                "mes" => BucketPorMes(orders, dataInicio, dataFimExclusiva),
+                _ => BucketPorDia(orders, dataInicio, dataFimExclusiva)
+            };
+
+            var receitaTotal = orders.Sum(o => o.ValorTotal);
+            var totalPedidos = orders.Count;
+            var ticketMedio = totalPedidos == 0 ? 0m : receitaTotal / totalPedidos;
+
+            // Período anterior: mesma duração, terminando exatamente onde o
+            // período atual começa — dá pra comparar "últimos 30 dias" com
+            // os 30 dias antes deles, sem se importar se a duração veio de
+            // dias ou de meses (trimestre/semestre/ano).
+            var duracao = dataFimExclusiva - dataInicio;
+            var dataInicioAnterior = dataInicio - duracao;
+            var receitaAnterior = await _context.Orders
+                .Where(o => o.CriadoEm >= dataInicioAnterior && o.CriadoEm < dataInicio)
+                .SumAsync(o => (decimal?)o.ValorTotal) ?? 0m;
+
+            decimal? variacaoPercentual = receitaAnterior > 0
+                ? Math.Round((receitaTotal - receitaAnterior) / receitaAnterior * 100, 1)
+                : null;
+
+            return new RevenueByPeriodResponseDTO
+            {
+                Periodo = periodo,
+                DataInicio = dataInicio,
+                DataFim = hoje,
+                Granularidade = config.granularidade,
+                ReceitaTotal = receitaTotal,
+                TotalPedidos = totalPedidos,
+                TicketMedio = ticketMedio,
+                ReceitaPeriodoAnterior = receitaAnterior,
+                VariacaoPercentual = variacaoPercentual,
+                Pontos = pontos
+            };
+        }
+
+        // Um ponto por dia — inclui dias sem pedido (receita 0) pra manter o
+        // eixo X contínuo em vez de pular datas sem venda.
+        private static List<RevenuePointDTO> BucketPorDia(List<OrderRevenueRow> orders, DateTime inicio, DateTime fimExclusiva)
+        {
+            var porDia = orders.ToLookup(o => o.CriadoEm.Date);
+
+            var pontos = new List<RevenuePointDTO>();
+            for (var dia = inicio; dia < fimExclusiva; dia = dia.AddDays(1))
+            {
+                pontos.Add(new RevenuePointDTO { Data = dia, Receita = porDia[dia].Sum(o => o.ValorTotal) });
+            }
+            return pontos;
+        }
+
+        // Janelas de 7 dias a partir do início do período (não é semana ISO
+        // — é só uma janela rolante a partir da data de início, mais simples
+        // e suficiente pra um gráfico de tendência).
+        private static List<RevenuePointDTO> BucketPorSemana(List<OrderRevenueRow> orders, DateTime inicio, DateTime fimExclusiva)
+        {
+            var pontos = new List<RevenuePointDTO>();
+
+            for (var inicioSemana = inicio; inicioSemana < fimExclusiva; inicioSemana = inicioSemana.AddDays(7))
+            {
+                var fimSemanaExclusiva = inicioSemana.AddDays(7);
+                if (fimSemanaExclusiva > fimExclusiva) fimSemanaExclusiva = fimExclusiva;
+
+                var receita = orders
+                    .Where(o => o.CriadoEm >= inicioSemana && o.CriadoEm < fimSemanaExclusiva)
+                    .Sum(o => o.ValorTotal);
+
+                pontos.Add(new RevenuePointDTO { Data = inicioSemana, Receita = receita });
+            }
+            return pontos;
+        }
+
+        // Um ponto por mês calendário, respeitando janelas parciais nas
+        // pontas do período (ex: período começa dia 15 — o primeiro ponto
+        // soma só do dia 15 em diante daquele mês).
+        private static List<RevenuePointDTO> BucketPorMes(List<OrderRevenueRow> orders, DateTime inicio, DateTime fimExclusiva)
+        {
+            var pontos = new List<RevenuePointDTO>();
+
+            var inicioMes = new DateTime(inicio.Year, inicio.Month, 1);
+            while (inicioMes < fimExclusiva)
+            {
+                var proximoMes = inicioMes.AddMonths(1);
+                var janelaInicio = inicioMes > inicio ? inicioMes : inicio;
+                var janelaFim = proximoMes < fimExclusiva ? proximoMes : fimExclusiva;
+
+                var receita = orders
+                    .Where(o => o.CriadoEm >= janelaInicio && o.CriadoEm < janelaFim)
+                    .Sum(o => o.ValorTotal);
+
+                pontos.Add(new RevenuePointDTO { Data = inicioMes, Receita = receita });
+                inicioMes = proximoMes;
+            }
+            return pontos;
+        }
+
+        private readonly record struct OrderRevenueRow(DateTime CriadoEm, decimal ValorTotal);
     }
 }
