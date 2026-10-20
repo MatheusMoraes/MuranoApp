@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MuranoApp.Data;
 using MuranoApp.DTOs;
+using MuranoApp.Extensions;
 using MuranoApp.Services;
 
 namespace MuranoApp.Controllers
@@ -27,7 +28,7 @@ namespace MuranoApp.Controllers
 
             try
             {
-                var result = await service.CreateAsync(dto);
+                var result = await service.CreateAsync(dto, User.GetUserId());
 
                 return CreatedAtAction(
                     nameof(GetById),
@@ -49,7 +50,7 @@ namespace MuranoApp.Controllers
         {
             var service = new ProductService(_context);
 
-            var result = await service.GetByIdAsync(id);
+            var result = await service.GetByIdAsync(id, User.GetUserId(), User.IsAdminUser());
 
             if (result == null)
                 return NotFound();
@@ -62,7 +63,7 @@ namespace MuranoApp.Controllers
         {
             var service = new ProductService(_context);
 
-            var result = await service.GetAllAsync();
+            var result = await service.GetAllAsync(User.GetUserId(), User.IsAdminUser());
 
             return Ok(result);
         }
@@ -74,7 +75,7 @@ namespace MuranoApp.Controllers
 
             try
             {
-                var updated = await service.UpdateAsync(id, dto);
+                var updated = await service.UpdateAsync(id, dto, User.GetUserId(), User.IsAdminUser());
 
                 if (!updated)
                     return NotFound();
@@ -96,7 +97,7 @@ namespace MuranoApp.Controllers
         {
             var service = new ProductService(_context, new CloudinaryService(_configuration));
 
-            var deleted = await service.DeleteAsync(id);
+            var deleted = await service.DeleteAsync(id, User.GetUserId(), User.IsAdminUser());
 
             if (!deleted)
                 return NotFound();

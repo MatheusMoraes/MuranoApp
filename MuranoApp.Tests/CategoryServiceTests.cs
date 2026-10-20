@@ -46,7 +46,8 @@ namespace MuranoApp.Tests
                 NomeNormalizado = "produto x",
                 CategoriaId = categoria.Id,
                 PrecoVarejo = 5m,
-                Quantidade = 1
+                Quantidade = 1,
+                UserId = 1
             });
             _fixture.Context.SaveChanges();
 

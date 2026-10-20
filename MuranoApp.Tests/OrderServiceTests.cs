@@ -11,6 +11,9 @@ namespace MuranoApp.Tests
     // manualmente entre eles.
     public class OrderServiceTests : IDisposable
     {
+        private const int UserId = 1;
+        private const int OtherUserId = 2;
+
         private readonly SqliteContextFixture _fixture;
         private readonly OrderService _service;
 
@@ -64,7 +67,8 @@ namespace MuranoApp.Tests
                 PrecoVarejo = precoVarejo,
                 PrecoAtacado = precoAtacado,
                 QuantidadeMinimaAtacado = quantidadeMinimaAtacado,
-                Quantidade = quantidade
+                Quantidade = quantidade,
+                UserId = UserId
             };
             _fixture.Context.Products.Add(product);
             _fixture.Context.SaveChanges();
@@ -82,7 +86,7 @@ namespace MuranoApp.Tests
             {
                 ClientId = cliente.Id,
                 Items = new List<OrderItemDTO> { new() { ProdutoId = produto.Id, Quantidade = 5 } }
-            });
+            }, UserId);
 
             var produtoAtualizado = _fixture.Context.Products.Find(produto.Id);
             Assert.Equal(45, produtoAtualizado!.Quantidade);
@@ -99,7 +103,7 @@ namespace MuranoApp.Tests
             {
                 ClientId = cliente.Id,
                 Items = new List<OrderItemDTO> { new() { ProdutoId = produto.Id, Quantidade = 3 } }
-            });
+            }, UserId);
 
             Assert.Equal(10m, result.Items[0].PrecoUnitario);
             Assert.Equal(30m, result.ValorTotal);
@@ -116,7 +120,7 @@ namespace MuranoApp.Tests
             {
                 ClientId = cliente.Id,
                 Items = new List<OrderItemDTO> { new() { ProdutoId = produto.Id, Quantidade = 10 } }
-            });
+            }, UserId);
 
             Assert.Equal(7m, result.Items[0].PrecoUnitario);
             Assert.Equal(70m, result.ValorTotal);
@@ -133,7 +137,7 @@ namespace MuranoApp.Tests
             {
                 ClientId = cliente.Id,
                 Items = new List<OrderItemDTO> { new() { ProdutoId = produto.Id, Quantidade = 5 } }
-            }));
+            }, UserId));
         }
 
         [Fact]
@@ -146,7 +150,7 @@ namespace MuranoApp.Tests
             {
                 ClientId = 999,
                 Items = new List<OrderItemDTO> { new() { ProdutoId = produto.Id, Quantidade = 1 } }
-            }));
+            }, UserId));
         }
 
         [Fact]
@@ -158,7 +162,7 @@ namespace MuranoApp.Tests
             {
                 ClientId = cliente.Id,
                 Items = new List<OrderItemDTO> { new() { ProdutoId = 999, Quantidade = 1 } }
-            }));
+            }, UserId));
         }
 
         [Fact]
@@ -172,7 +176,7 @@ namespace MuranoApp.Tests
             {
                 ClientId = cliente.Id,
                 Items = new List<OrderItemDTO> { new() { ProdutoId = produto.Id, Quantidade = 1 } }
-            }));
+            }, UserId));
         }
 
         [Fact]
@@ -195,7 +199,7 @@ namespace MuranoApp.Tests
                     Numero = "42"
                 },
                 Items = new List<OrderItemDTO> { new() { ProdutoId = produto.Id, Quantidade = 1 } }
-            });
+            }, UserId);
 
             Assert.Equal("Rua Alternativa", result.Rua);
             Assert.Equal("RJ", result.Estado);
@@ -212,9 +216,9 @@ namespace MuranoApp.Tests
             {
                 ClientId = cliente.Id,
                 Items = new List<OrderItemDTO> { new() { ProdutoId = produto.Id, Quantidade = 10 } }
-            });
+            }, UserId);
 
-            await _service.DeleteAsync(created.Id);
+            await _service.DeleteAsync(created.Id, UserId, isAdmin: false);
 
             var produtoAtualizado = _fixture.Context.Products.Find(produto.Id);
             Assert.Equal(50, produtoAtualizado!.Quantidade);
@@ -231,7 +235,7 @@ namespace MuranoApp.Tests
             {
                 ClientId = cliente.Id,
                 Items = new List<OrderItemDTO> { new() { ProdutoId = produto.Id, Quantidade = 10 } }
-            });
+            }, UserId);
 
             // Simula a exclusão do produto: SetNull deixaria ProdutoId nulo no
             // OrderItem (comportamento configurado no AppDbContext); aqui
@@ -248,7 +252,7 @@ namespace MuranoApp.Tests
             _fixture.Context.SaveChanges();
 
             // Não deve lançar mesmo sem produto pra repor estoque.
-            await _service.DeleteAsync(created.Id);
+            await _service.DeleteAsync(created.Id, UserId, isAdmin: false);
 
             Assert.Null(_fixture.Context.Orders.Find(created.Id));
         }
@@ -264,18 +268,81 @@ namespace MuranoApp.Tests
             {
                 ClientId = cliente.Id,
                 Items = new List<OrderItemDTO> { new() { ProdutoId = produto.Id, Quantidade = 10 } }
-            });
+            }, UserId);
             // 50 - 10 = 40 em estoque agora.
 
             await _service.UpdateAsync(created.Id, new CreateOrderDTO
             {
                 ClientId = cliente.Id,
                 Items = new List<OrderItemDTO> { new() { ProdutoId = produto.Id, Quantidade = 3 } }
-            });
+            }, UserId, isAdmin: false);
             // Restaura os 10 (volta a 50) e decrementa 3 (fica em 47).
 
             var produtoAtualizado = _fixture.Context.Products.Find(produto.Id);
             Assert.Equal(47, produtoAtualizado!.Quantidade);
+        }
+
+        [Fact]
+        public async Task GetAllAsync_UsuarioComumSoVeOsProprios()
+        {
+            var categoria = AddCategory();
+            var cliente = AddClient();
+            var produto = AddProduct(categoria, quantidade: 50);
+
+            await _service.CreateAsync(new CreateOrderDTO
+            {
+                ClientId = cliente.Id,
+                Items = new List<OrderItemDTO> { new() { ProdutoId = produto.Id, Quantidade = 1 } }
+            }, UserId);
+            await _service.CreateAsync(new CreateOrderDTO
+            {
+                ClientId = cliente.Id,
+                Items = new List<OrderItemDTO> { new() { ProdutoId = produto.Id, Quantidade = 1 } }
+            }, OtherUserId);
+
+            var result = await _service.GetAllAsync(UserId, isAdmin: false);
+
+            Assert.Single(result);
+        }
+
+        [Fact]
+        public async Task GetAllAsync_AdminVeTodos()
+        {
+            var categoria = AddCategory();
+            var cliente = AddClient();
+            var produto = AddProduct(categoria, quantidade: 50);
+
+            await _service.CreateAsync(new CreateOrderDTO
+            {
+                ClientId = cliente.Id,
+                Items = new List<OrderItemDTO> { new() { ProdutoId = produto.Id, Quantidade = 1 } }
+            }, UserId);
+            await _service.CreateAsync(new CreateOrderDTO
+            {
+                ClientId = cliente.Id,
+                Items = new List<OrderItemDTO> { new() { ProdutoId = produto.Id, Quantidade = 1 } }
+            }, OtherUserId);
+
+            var result = await _service.GetAllAsync(UserId, isAdmin: true);
+
+            Assert.Equal(2, result.Count);
+        }
+
+        [Fact]
+        public async Task DeleteAsync_UsuarioComumNaoConsegueExcluirPedidoDeOutroUsuario()
+        {
+            var categoria = AddCategory();
+            var cliente = AddClient();
+            var produto = AddProduct(categoria, quantidade: 50);
+
+            var created = await _service.CreateAsync(new CreateOrderDTO
+            {
+                ClientId = cliente.Id,
+                Items = new List<OrderItemDTO> { new() { ProdutoId = produto.Id, Quantidade = 1 } }
+            }, OtherUserId);
+
+            await Assert.ThrowsAsync<KeyNotFoundException>(
+                () => _service.DeleteAsync(created.Id, UserId, isAdmin: false));
         }
     }
 }

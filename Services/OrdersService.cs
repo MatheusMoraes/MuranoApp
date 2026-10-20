@@ -14,7 +14,7 @@ namespace MuranoApp.Services
             _context = context;
         }
 
-        public async Task<OrderResponseDTO> CreateAsync(CreateOrderDTO dto)
+        public async Task<OrderResponseDTO> CreateAsync(CreateOrderDTO dto, int userId)
         {
             if (dto.Items == null || !dto.Items.Any())
                 throw new ArgumentException("Order must contain at least one item.");
@@ -75,6 +75,7 @@ namespace MuranoApp.Services
 
                 order.ValorTotal = total;
                 order.ClientId = client.Id;
+                order.UserId = userId;
                 ApplyEndereco(order, dto.EnderecoEntrega, client);
 
                 _context.Orders.Add(order);
@@ -93,22 +94,25 @@ namespace MuranoApp.Services
             return ToResponse(createdOrder, client.Nome);
         }
 
-        public async Task<List<OrderResponseDTO>> GetAllAsync()
+        // isAdmin ignora o dono — admin ("admin murano") vê qualquer
+        // pedido; usuário comum só vê o que ele mesmo criou.
+        public async Task<List<OrderResponseDTO>> GetAllAsync(int userId, bool isAdmin)
         {
             var orders = await _context.Orders
                 .Include(o => o.Client)
                 .Include(o => o.Items)
+                .Where(o => isAdmin || o.UserId == userId)
                 .ToListAsync();
 
             return orders.Select(o => ToResponse(o, o.Client.Nome)).ToList();
         }
 
-        public async Task<OrderResponseDTO?> GetByIdAsync(int id)
+        public async Task<OrderResponseDTO?> GetByIdAsync(int id, int userId, bool isAdmin)
         {
             var order = await _context.Orders
                 .Include(o => o.Client)
                 .Include(o => o.Items)
-                .FirstOrDefaultAsync(o => o.Id == id);
+                .FirstOrDefaultAsync(o => o.Id == id && (isAdmin || o.UserId == userId));
 
             if (order == null)
                 return null;
@@ -116,7 +120,7 @@ namespace MuranoApp.Services
             return ToResponse(order, order.Client.Nome);
         }
 
-        public async Task DeleteAsync(int id)
+        public async Task DeleteAsync(int id, int userId, bool isAdmin)
         {
             var strategy = _context.Database.CreateExecutionStrategy();
 
@@ -128,7 +132,7 @@ namespace MuranoApp.Services
 
                 var order = await _context.Orders
                     .Include(o => o.Items)
-                    .FirstOrDefaultAsync(o => o.Id == id);
+                    .FirstOrDefaultAsync(o => o.Id == id && (isAdmin || o.UserId == userId));
 
                 if (order == null)
                     throw new KeyNotFoundException($"Order {id} not found.");
@@ -156,7 +160,7 @@ namespace MuranoApp.Services
             });
         }
 
-        public async Task<OrderResponseDTO> UpdateAsync(int id, CreateOrderDTO dto)
+        public async Task<OrderResponseDTO> UpdateAsync(int id, CreateOrderDTO dto, int userId, bool isAdmin)
         {
             if (dto.Items == null || !dto.Items.Any())
                 throw new ArgumentException("Order must contain at least one item.");
@@ -177,7 +181,7 @@ namespace MuranoApp.Services
 
                 var order = await _context.Orders
                     .Include(o => o.Items)
-                    .FirstOrDefaultAsync(o => o.Id == id);
+                    .FirstOrDefaultAsync(o => o.Id == id && (isAdmin || o.UserId == userId));
 
                 if (order == null)
                     throw new KeyNotFoundException($"Order {id} not found.");

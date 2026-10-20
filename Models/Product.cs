@@ -38,5 +38,11 @@ namespace MuranoApp.Models
         public string? ImagemPublicId { get; set; }
 
         public DateTime CriadoEm { get; set; } = DateTime.UtcNow;
+
+        // Dono do cadastro (quem criou) — usuários comuns só veem/editam os
+        // próprios produtos; o admin vê todos, ignorando este campo. Ver
+        // ProductService.
+        public int UserId { get; set; }
+        public AdminUser User { get; set; } = null!;
     }
 }

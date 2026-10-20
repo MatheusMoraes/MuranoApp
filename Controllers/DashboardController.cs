@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MuranoApp.Data;
+using MuranoApp.Extensions;
 using MuranoApp.Services;
 
 namespace MuranoApp.Controllers
@@ -21,7 +22,7 @@ namespace MuranoApp.Controllers
         public async Task<IActionResult> Get()
         {
             var service = new DashboardService(_context);
-            var result = await service.GetAsync();
+            var result = await service.GetAsync(User.GetUserId(), User.IsAdminUser());
             return Ok(result);
         }
 
@@ -33,7 +34,7 @@ namespace MuranoApp.Controllers
 
             try
             {
-                var result = await service.GetRevenueByPeriodAsync(period);
+                var result = await service.GetRevenueByPeriodAsync(period, User.GetUserId(), User.IsAdminUser());
                 return Ok(result);
             }
             catch (ArgumentException ex)

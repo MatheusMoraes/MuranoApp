@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using MuranoApp.Data;
 using MuranoApp.DTOs;
+using MuranoApp.Extensions;
 using MuranoApp.Services;
 
 namespace MuranoApp.Controllers
@@ -26,7 +27,7 @@ namespace MuranoApp.Controllers
 
             try
             {
-                var result = await service.CreateAsync(dto);
+                var result = await service.CreateAsync(dto, User.GetUserId());
 
                 return Created("", result);
             }
@@ -49,7 +50,7 @@ namespace MuranoApp.Controllers
         {
             var service = new OrderService(_context);
 
-            var result = await service.GetAllAsync();
+            var result = await service.GetAllAsync(User.GetUserId(), User.IsAdminUser());
 
             return Ok(result);
         }
@@ -58,7 +59,7 @@ namespace MuranoApp.Controllers
         public async Task<IActionResult> GetById(int id)
         {
             var service = new OrderService(_context);
-            var result = await service.GetByIdAsync(id);
+            var result = await service.GetByIdAsync(id, User.GetUserId(), User.IsAdminUser());
             if (result == null)
                 return NotFound();
             return Ok(result);
@@ -71,7 +72,7 @@ namespace MuranoApp.Controllers
 
             try
             {
-                var result = await service.UpdateAsync(id, dto);
+                var result = await service.UpdateAsync(id, dto, User.GetUserId(), User.IsAdminUser());
                 return Ok(result);
             }
             catch (KeyNotFoundException ex)
@@ -95,7 +96,7 @@ namespace MuranoApp.Controllers
 
             try
             {
-                await service.DeleteAsync(id);
+                await service.DeleteAsync(id, User.GetUserId(), User.IsAdminUser());
                 return NoContent();
             }
             catch (KeyNotFoundException ex)

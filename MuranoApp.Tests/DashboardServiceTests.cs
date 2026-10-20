@@ -6,6 +6,9 @@ namespace MuranoApp.Tests
 {
     public class DashboardServiceTests : IDisposable
     {
+        private const int UserId = 1;
+        private const int OtherUserId = 2;
+
         private readonly SqliteContextFixture _fixture;
         private readonly DashboardService _service;
 
@@ -20,7 +23,7 @@ namespace MuranoApp.Tests
         [Fact]
         public async Task GetAsync_SemPedidos_RetornaZerados()
         {
-            var result = await _service.GetAsync();
+            var result = await _service.GetAsync(UserId, isAdmin: true);
 
             Assert.Equal(0, result.TotalPedidos);
             Assert.Equal(0m, result.ReceitaTotal);
@@ -39,7 +42,8 @@ namespace MuranoApp.Tests
                 NomeNormalizado = "prod",
                 Categoria = categoria,
                 PrecoVarejo = 10m,
-                Quantidade = 100
+                Quantidade = 100,
+                UserId = UserId
             };
             var clienteA = new Client { Nome = "Cliente A" };
             var clienteB = new Client { Nome = "Cliente B" };
@@ -48,18 +52,64 @@ namespace MuranoApp.Tests
 
             // Cliente A: 2 pedidos, Cliente B: 1 pedido.
             _fixture.Context.Orders.AddRange(
-                new Order { ClientId = clienteA.Id, ValorTotal = 10m, Cep = "", Rua = "", Bairro = "", Cidade = "", Estado = "", Numero = "", Complemento = "" },
-                new Order { ClientId = clienteA.Id, ValorTotal = 20m, Cep = "", Rua = "", Bairro = "", Cidade = "", Estado = "", Numero = "", Complemento = "" },
-                new Order { ClientId = clienteB.Id, ValorTotal = 5m, Cep = "", Rua = "", Bairro = "", Cidade = "", Estado = "", Numero = "", Complemento = "" }
+                new Order { ClientId = clienteA.Id, UserId = UserId, ValorTotal = 10m, Cep = "", Rua = "", Bairro = "", Cidade = "", Estado = "", Numero = "", Complemento = "" },
+                new Order { ClientId = clienteA.Id, UserId = UserId, ValorTotal = 20m, Cep = "", Rua = "", Bairro = "", Cidade = "", Estado = "", Numero = "", Complemento = "" },
+                new Order { ClientId = clienteB.Id, UserId = UserId, ValorTotal = 5m, Cep = "", Rua = "", Bairro = "", Cidade = "", Estado = "", Numero = "", Complemento = "" }
             );
             _fixture.Context.SaveChanges();
 
-            var result = await _service.GetAsync();
+            var result = await _service.GetAsync(UserId, isAdmin: true);
 
             Assert.Equal(3, result.TotalPedidos);
             Assert.Equal(35m, result.ReceitaTotal);
             Assert.Equal("Cliente A", result.TopClientes[0].Nome);
             Assert.Equal(2, result.TopClientes[0].TotalPedidos);
+        }
+
+        [Fact]
+        public async Task GetAsync_UsuarioComumSoVePedidosEProdutosProprios()
+        {
+            var categoria = new Category { Nome = "Cat", NomeNormalizado = "cat" };
+            var meuProduto = new Product { Nome = "Meu", NomeNormalizado = "meu", Categoria = categoria, PrecoVarejo = 10m, Quantidade = 100, UserId = UserId };
+            var produtoDoOutro = new Product { Nome = "DoOutro", NomeNormalizado = "doooutro", Categoria = categoria, PrecoVarejo = 10m, Quantidade = 100, UserId = OtherUserId };
+            var cliente = new Client { Nome = "Cliente" };
+            _fixture.Context.AddRange(categoria, meuProduto, produtoDoOutro, cliente);
+            _fixture.Context.SaveChanges();
+
+            _fixture.Context.Orders.AddRange(
+                new Order { ClientId = cliente.Id, UserId = UserId, ValorTotal = 10m, Cep = "", Rua = "", Bairro = "", Cidade = "", Estado = "", Numero = "", Complemento = "" },
+                new Order { ClientId = cliente.Id, UserId = OtherUserId, ValorTotal = 999m, Cep = "", Rua = "", Bairro = "", Cidade = "", Estado = "", Numero = "", Complemento = "" }
+            );
+            _fixture.Context.SaveChanges();
+
+            var result = await _service.GetAsync(UserId, isAdmin: false);
+
+            Assert.Equal(1, result.TotalPedidos);
+            Assert.Equal(10m, result.ReceitaTotal);
+            Assert.Equal(1, result.TotalProdutos);
+        }
+
+        [Fact]
+        public async Task GetAsync_AdminVePedidosEProdutosDeTodoMundo()
+        {
+            var categoria = new Category { Nome = "Cat", NomeNormalizado = "cat" };
+            var meuProduto = new Product { Nome = "Meu", NomeNormalizado = "meu", Categoria = categoria, PrecoVarejo = 10m, Quantidade = 100, UserId = UserId };
+            var produtoDoOutro = new Product { Nome = "DoOutro", NomeNormalizado = "doooutro", Categoria = categoria, PrecoVarejo = 10m, Quantidade = 100, UserId = OtherUserId };
+            var cliente = new Client { Nome = "Cliente" };
+            _fixture.Context.AddRange(categoria, meuProduto, produtoDoOutro, cliente);
+            _fixture.Context.SaveChanges();
+
+            _fixture.Context.Orders.AddRange(
+                new Order { ClientId = cliente.Id, UserId = UserId, ValorTotal = 10m, Cep = "", Rua = "", Bairro = "", Cidade = "", Estado = "", Numero = "", Complemento = "" },
+                new Order { ClientId = cliente.Id, UserId = OtherUserId, ValorTotal = 20m, Cep = "", Rua = "", Bairro = "", Cidade = "", Estado = "", Numero = "", Complemento = "" }
+            );
+            _fixture.Context.SaveChanges();
+
+            var result = await _service.GetAsync(UserId, isAdmin: true);
+
+            Assert.Equal(2, result.TotalPedidos);
+            Assert.Equal(30m, result.ReceitaTotal);
+            Assert.Equal(2, result.TotalProdutos);
         }
 
         [Fact]
@@ -72,7 +122,8 @@ namespace MuranoApp.Tests
                 NomeNormalizado = "produto descontinuado",
                 Categoria = categoria,
                 PrecoVarejo = 10m,
-                Quantidade = 100
+                Quantidade = 100,
+                UserId = UserId
             };
             var cliente = new Client { Nome = "Cliente" };
             _fixture.Context.AddRange(categoria, produto, cliente);
@@ -81,6 +132,7 @@ namespace MuranoApp.Tests
             var order = new Order
             {
                 ClientId = cliente.Id,
+                UserId = UserId,
                 ValorTotal = 50m,
                 Cep = "", Rua = "", Bairro = "", Cidade = "", Estado = "", Numero = "", Complemento = ""
             };
@@ -95,7 +147,7 @@ namespace MuranoApp.Tests
             _fixture.Context.Orders.Add(order);
             _fixture.Context.SaveChanges();
 
-            var result = await _service.GetAsync();
+            var result = await _service.GetAsync(UserId, isAdmin: true);
 
             Assert.Contains(result.TopProdutos, p => p.Nome == "Produto Descontinuado" && p.QuantidadeVendida == 5);
         }
@@ -104,9 +156,9 @@ namespace MuranoApp.Tests
         public async Task GetAsync_ProdutosMaisCarosVendidos_OrdenaPorPrecoEExcluiOsSemVenda()
         {
             var categoria = new Category { Nome = "Cat", NomeNormalizado = "cat" };
-            var caro = new Product { Nome = "Caro", NomeNormalizado = "caro", Categoria = categoria, PrecoVarejo = 100m, Quantidade = 50 };
-            var barato = new Product { Nome = "Barato", NomeNormalizado = "barato", Categoria = categoria, PrecoVarejo = 10m, Quantidade = 50 };
-            var caroSemVenda = new Product { Nome = "Caro Parado", NomeNormalizado = "caro parado", Categoria = categoria, PrecoVarejo = 500m, Quantidade = 50 };
+            var caro = new Product { Nome = "Caro", NomeNormalizado = "caro", Categoria = categoria, PrecoVarejo = 100m, Quantidade = 50, UserId = UserId };
+            var barato = new Product { Nome = "Barato", NomeNormalizado = "barato", Categoria = categoria, PrecoVarejo = 10m, Quantidade = 50, UserId = UserId };
+            var caroSemVenda = new Product { Nome = "Caro Parado", NomeNormalizado = "caro parado", Categoria = categoria, PrecoVarejo = 500m, Quantidade = 50, UserId = UserId };
             var cliente = new Client { Nome = "Cliente" };
             _fixture.Context.AddRange(categoria, caro, barato, caroSemVenda, cliente);
             _fixture.Context.SaveChanges();
@@ -114,6 +166,7 @@ namespace MuranoApp.Tests
             var order = new Order
             {
                 ClientId = cliente.Id,
+                UserId = UserId,
                 ValorTotal = 220m,
                 Cep = "", Rua = "", Bairro = "", Cidade = "", Estado = "", Numero = "", Complemento = ""
             };
@@ -122,7 +175,7 @@ namespace MuranoApp.Tests
             _fixture.Context.Orders.Add(order);
             _fixture.Context.SaveChanges();
 
-            var result = await _service.GetAsync();
+            var result = await _service.GetAsync(UserId, isAdmin: true);
 
             // "Caro Parado" nunca vendeu — não deve entrar no ranking mesmo
             // sendo o mais caro do catálogo.
@@ -140,11 +193,12 @@ namespace MuranoApp.Tests
             return client;
         }
 
-        private void AddOrderEm(int clientId, DateTime criadoEm, decimal valorTotal)
+        private void AddOrderEm(int clientId, DateTime criadoEm, decimal valorTotal, int userId = UserId)
         {
             _fixture.Context.Orders.Add(new Order
             {
                 ClientId = clientId,
+                UserId = userId,
                 ValorTotal = valorTotal,
                 CriadoEm = criadoEm,
                 Cep = "", Rua = "", Bairro = "", Cidade = "", Estado = "", Numero = "", Complemento = ""
@@ -155,7 +209,7 @@ namespace MuranoApp.Tests
         [Fact]
         public async Task GetRevenueByPeriodAsync_PeriodoInvalido_LancaArgumentException()
         {
-            await Assert.ThrowsAsync<ArgumentException>(() => _service.GetRevenueByPeriodAsync("2anos"));
+            await Assert.ThrowsAsync<ArgumentException>(() => _service.GetRevenueByPeriodAsync("2anos", UserId, isAdmin: true));
         }
 
         [Fact]
@@ -169,7 +223,7 @@ namespace MuranoApp.Tests
             // Fora da janela de 30 dias — não deve entrar na soma.
             AddOrderEm(cliente.Id, hoje.AddDays(-40), 999m);
 
-            var result = await _service.GetRevenueByPeriodAsync("30d");
+            var result = await _service.GetRevenueByPeriodAsync("30d", UserId, isAdmin: true);
 
             Assert.Equal("dia", result.Granularidade);
             Assert.Equal(30, result.Pontos.Count);
@@ -189,7 +243,7 @@ namespace MuranoApp.Tests
             AddOrderEm(cliente.Id, hoje, 200m);
             AddOrderEm(cliente.Id, hoje.AddDays(-35), 100m);
 
-            var result = await _service.GetRevenueByPeriodAsync("30d");
+            var result = await _service.GetRevenueByPeriodAsync("30d", UserId, isAdmin: true);
 
             Assert.Equal(200m, result.ReceitaTotal);
             Assert.Equal(1, result.TotalPedidos);
@@ -204,7 +258,7 @@ namespace MuranoApp.Tests
             var cliente = AddClientDireto();
             AddOrderEm(cliente.Id, DateTime.UtcNow.Date, 50m);
 
-            var result = await _service.GetRevenueByPeriodAsync("30d");
+            var result = await _service.GetRevenueByPeriodAsync("30d", UserId, isAdmin: true);
 
             Assert.Null(result.VariacaoPercentual);
         }
@@ -218,13 +272,27 @@ namespace MuranoApp.Tests
             AddOrderEm(cliente.Id, hoje, 100m);
             AddOrderEm(cliente.Id, hoje.AddMonths(-2), 50m);
 
-            var result = await _service.GetRevenueByPeriodAsync("ano");
+            var result = await _service.GetRevenueByPeriodAsync("ano", UserId, isAdmin: true);
 
             Assert.Equal("mes", result.Granularidade);
             Assert.Equal(150m, result.ReceitaTotal);
             // Um ponto por mês calendário dentro da janela — pelo menos os
             // dois meses com pedido devem aparecer com a soma correta.
             Assert.Contains(result.Pontos, p => p.Data.Year == hoje.Year && p.Data.Month == hoje.Month && p.Receita == 100m);
+        }
+
+        [Fact]
+        public async Task GetRevenueByPeriodAsync_UsuarioComumNaoVeReceitaDeOutroUsuario()
+        {
+            var cliente = AddClientDireto();
+            var hoje = DateTime.UtcNow.Date;
+
+            AddOrderEm(cliente.Id, hoje, 100m, userId: UserId);
+            AddOrderEm(cliente.Id, hoje, 999m, userId: OtherUserId);
+
+            var result = await _service.GetRevenueByPeriodAsync("30d", UserId, isAdmin: false);
+
+            Assert.Equal(100m, result.ReceitaTotal);
         }
     }
 }

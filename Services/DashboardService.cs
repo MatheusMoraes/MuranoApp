@@ -15,17 +15,25 @@ namespace MuranoApp.Services
             _context = context;
         }
 
-        public async Task<DashboardResponseDTO> GetAsync()
+        // isAdmin ignora o dono — admin ("admin murano") vê o dashboard
+        // com dados de todo mundo; usuário comum só vê pedidos/produtos
+        // que ele mesmo cadastrou. Clientes e categorias são compartilhados
+        // entre usuários (não têm dono), então TotalClientes fica de fora
+        // desse filtro de propósito.
+        public async Task<DashboardResponseDTO> GetAsync(int userId, bool isAdmin)
         {
-            var totalPedidos = await _context.Orders.CountAsync();
+            var ordersQuery = _context.Orders.Where(o => isAdmin || o.UserId == userId);
+            var productsQuery = _context.Products.Where(p => isAdmin || p.UserId == userId);
+
+            var totalPedidos = await ordersQuery.CountAsync();
             var receitaTotal = totalPedidos == 0
                 ? 0m
-                : await _context.Orders.SumAsync(o => o.ValorTotal);
+                : await ordersQuery.SumAsync(o => o.ValorTotal);
             var ticketMedio = totalPedidos == 0 ? 0m : receitaTotal / totalPedidos;
 
             var totalClientes = await _context.Clients.CountAsync();
-            var totalProdutos = await _context.Products.CountAsync();
-            var produtosComEstoqueBaixo = await _context.Products
+            var totalProdutos = await productsQuery.CountAsync();
+            var produtosComEstoqueBaixo = await productsQuery
                 .CountAsync(p => p.EstoqueMinimo != null && p.Quantidade <= p.EstoqueMinimo);
 
             // Top clientes por número de pedidos (desempate por valor total).
@@ -35,7 +43,7 @@ namespace MuranoApp.Services
             // clientes/pedidos de uma loja pequena é baixo, não há custo real
             // em ordenar client-side — o ganho é rodar igual em qualquer
             // provider.
-            var topClientesRaw = await _context.Orders
+            var topClientesRaw = await ordersQuery
                 .GroupBy(o => new { o.ClientId, o.Client.Nome })
                 .Select(g => new TopClienteDTO
                 {
@@ -58,6 +66,7 @@ namespace MuranoApp.Services
             // cadastro — nesse caso ProdutoId fica nulo, mas o histórico de
             // vendas continua íntegro.
             var topProdutosRaw = await _context.OrderItems
+                .Where(i => isAdmin || i.Order.UserId == userId)
                 .GroupBy(i => i.NomeProduto)
                 .Select(g => new TopProdutoDTO
                 {
@@ -81,7 +90,7 @@ namespace MuranoApp.Services
             // e ficam de fora dessa métrica específica (as outras acima
             // continuam corretas via NomeProduto).
             var receitaPorCategoriaRaw = await _context.OrderItems
-                .Where(i => i.ProdutoId != null)
+                .Where(i => i.ProdutoId != null && (isAdmin || i.Order.UserId == userId))
                 .Select(i => new { i.Quantidade, i.PrecoUnitario, i.Produto!.Categoria.Nome })
                 .GroupBy(x => x.Nome)
                 .Select(g => new ReceitaPorCategoriaDTO
@@ -103,7 +112,7 @@ namespace MuranoApp.Services
             // disponível); os excluídos ficam de fora dessa métrica
             // específica, igual à receita por categoria.
             var produtosMaisCarosRaw = await _context.OrderItems
-                .Where(i => i.ProdutoId != null)
+                .Where(i => i.ProdutoId != null && (isAdmin || i.Order.UserId == userId))
                 .GroupBy(i => new { ProdutoId = i.ProdutoId!.Value, i.Produto!.Nome, i.Produto.PrecoVarejo })
                 .Select(g => new TopProdutoCaroDTO
                 {
@@ -149,7 +158,7 @@ namespace MuranoApp.Services
             ["ano"] = (null, 12, "mes"),
         };
 
-        public async Task<RevenueByPeriodResponseDTO> GetRevenueByPeriodAsync(string periodo)
+        public async Task<RevenueByPeriodResponseDTO> GetRevenueByPeriodAsync(string periodo, int userId, bool isAdmin)
         {
             if (!Periodos.TryGetValue(periodo, out var config))
                 throw new ArgumentException(
@@ -167,7 +176,7 @@ namespace MuranoApp.Services
             // tradução de agrupamento por data específica de cada provider
             // (Postgres em produção, SQLite nos testes automatizados).
             var orders = await _context.Orders
-                .Where(o => o.CriadoEm >= dataInicio && o.CriadoEm < dataFimExclusiva)
+                .Where(o => o.CriadoEm >= dataInicio && o.CriadoEm < dataFimExclusiva && (isAdmin || o.UserId == userId))
                 .Select(o => new OrderRevenueRow(o.CriadoEm, o.ValorTotal))
                 .ToListAsync();
 
@@ -189,7 +198,7 @@ namespace MuranoApp.Services
             var duracao = dataFimExclusiva - dataInicio;
             var dataInicioAnterior = dataInicio - duracao;
             var receitaAnterior = await _context.Orders
-                .Where(o => o.CriadoEm >= dataInicioAnterior && o.CriadoEm < dataInicio)
+                .Where(o => o.CriadoEm >= dataInicioAnterior && o.CriadoEm < dataInicio && (isAdmin || o.UserId == userId))
                 .SumAsync(o => (decimal?)o.ValorTotal) ?? 0m;
 
             decimal? variacaoPercentual = receitaAnterior > 0

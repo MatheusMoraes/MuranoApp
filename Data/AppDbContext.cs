@@ -49,11 +49,14 @@ namespace MuranoApp.Data
                 .HasForeignKey(p => p.CategoriaId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // Índice único sobre o nome normalizado — checagem de duplicidade
-            // de Product/Category vira uma busca indexada em vez de carregar
-            // a tabela inteira pra memória a cada criação/edição.
+            // Índice único composto (dono + nome normalizado) — nome de
+            // produto só precisa ser único dentro do catálogo do mesmo
+            // usuário (dois usuários podem ter produtos de mesmo nome em
+            // catálogos separados). Checagem de duplicidade vira uma busca
+            // indexada em vez de carregar a tabela inteira pra memória a
+            // cada criação/edição.
             modelBuilder.Entity<Product>()
-                .HasIndex(p => p.NomeNormalizado)
+                .HasIndex(p => new { p.UserId, p.NomeNormalizado })
                 .IsUnique();
 
             modelBuilder.Entity<Category>()
@@ -69,6 +72,22 @@ namespace MuranoApp.Data
                 .WithMany()
                 .HasForeignKey(i => i.ProdutoId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+            // Dono do cadastro (quem criou) — Restrict pra nunca apagar
+            // produtos/pedidos de ninguém só por remover um usuário (hoje
+            // não existe nem rota pra excluir usuário, mas evita a
+            // armadilha por padrão).
+            modelBuilder.Entity<Product>()
+                .HasOne(p => p.User)
+                .WithMany()
+                .HasForeignKey(p => p.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Order>()
+                .HasOne(o => o.User)
+                .WithMany()
+                .HasForeignKey(o => o.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
         }
     }
 }

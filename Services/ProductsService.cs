@@ -21,7 +21,7 @@ namespace MuranoApp.Services
             _cloudinaryService = cloudinaryService;
         }
 
-        public async Task<ProductResponseDTO> CreateAsync(CreateProductDTO dto)
+        public async Task<ProductResponseDTO> CreateAsync(CreateProductDTO dto, int userId)
         {
             if (string.IsNullOrWhiteSpace(dto.Nome))
                 throw new ArgumentException("Name is required.");
@@ -36,7 +36,7 @@ namespace MuranoApp.Services
                 throw new ArgumentException("Minimum stock cannot be negative.");
 
             ValidatePrecoAtacado(dto.PrecoVarejo, dto.PrecoAtacado, dto.QuantidadeMinimaAtacado);
-            await EnsureNomeIsUniqueAsync(dto.Nome, excludeId: null);
+            await EnsureNomeIsUniqueAsync(dto.Nome, userId, excludeId: null);
 
             var categoria = await _context.Categories.FindAsync(dto.CategoriaId);
             if (categoria == null)
@@ -54,7 +54,8 @@ namespace MuranoApp.Services
                 Quantidade = dto.Quantidade,
                 EstoqueMinimo = dto.EstoqueMinimo,
                 ImagemUrl = dto.ImagemUrl,
-                ImagemPublicId = dto.ImagemPublicId
+                ImagemPublicId = dto.ImagemPublicId,
+                UserId = userId
             };
 
             _context.Products.Add(product);
@@ -63,11 +64,15 @@ namespace MuranoApp.Services
             return ToResponse(product);
         }
 
-        public async Task<ProductResponseDTO?> GetByIdAsync(int id)
+        // isAdmin ignora o dono — admin ("admin murano") vê qualquer
+        // produto; usuário comum só vê o que ele mesmo cadastrou. Produto de
+        // outro usuário, pra quem não é admin, é tratado como inexistente
+        // (não "403 Forbidden") — não revela nem que o registro existe.
+        public async Task<ProductResponseDTO?> GetByIdAsync(int id, int userId, bool isAdmin)
         {
             var product = await _context.Products
                 .Include(p => p.Categoria)
-                .FirstOrDefaultAsync(p => p.Id == id);
+                .FirstOrDefaultAsync(p => p.Id == id && (isAdmin || p.UserId == userId));
 
             if (product == null)
                 return null;
@@ -75,18 +80,20 @@ namespace MuranoApp.Services
             return ToResponse(product);
         }
 
-        public async Task<List<ProductResponseDTO>> GetAllAsync()
+        public async Task<List<ProductResponseDTO>> GetAllAsync(int userId, bool isAdmin)
         {
             var products = await _context.Products
                 .Include(p => p.Categoria)
+                .Where(p => isAdmin || p.UserId == userId)
                 .ToListAsync();
 
             return products.Select(ToResponse).ToList();
         }
 
-        public async Task<bool> UpdateAsync(int id, UpdateProductDTO dto)
+        public async Task<bool> UpdateAsync(int id, UpdateProductDTO dto, int userId, bool isAdmin)
         {
-            var product = await _context.Products.FindAsync(id);
+            var product = await _context.Products
+                .FirstOrDefaultAsync(p => p.Id == id && (isAdmin || p.UserId == userId));
 
             if (product == null)
                 return false;
@@ -102,7 +109,7 @@ namespace MuranoApp.Services
                 throw new KeyNotFoundException($"Category {dto.CategoriaId} not found.");
 
             ValidatePrecoAtacado(dto.PrecoVarejo, dto.PrecoAtacado, dto.QuantidadeMinimaAtacado);
-            await EnsureNomeIsUniqueAsync(dto.Nome, excludeId: id);
+            await EnsureNomeIsUniqueAsync(dto.Nome, product.UserId, excludeId: id);
 
             // Se a imagem mudou (trocou ou foi removida), a antiga vira
             // lixo na Cloudinary — apaga antes de sobrescrever a referência.
@@ -166,19 +173,20 @@ namespace MuranoApp.Services
                 throw new ArgumentException("Wholesale price must not be greater than retail price.");
         }
 
-        // Nomes duplicados não são permitidos, ignorando maiúsculas/minúsculas
-        // e diferenças de espaçamento ("batata quente" == "BaTaTa   QUENTE").
-        // Checagem via índice único (NomeNormalizado) em vez de carregar a
-        // tabela inteira — a validação abaixo cobre o caso comum com uma
-        // mensagem amigável; TrySaveOrThrowDuplicateAsync é a rede de
-        // segurança contra corrida (duas criações simultâneas com o mesmo
-        // nome), que só o índice do banco consegue pegar de fato.
-        private async Task EnsureNomeIsUniqueAsync(string nome, int? excludeId)
+        // Nomes duplicados não são permitidos dentro do catálogo do mesmo
+        // usuário (dois usuários podem ter um produto de mesmo nome em
+        // catálogos separados), ignorando maiúsculas/minúsculas e espaços
+        // ("batata quente" == "BaTaTa   QUENTE"). Checagem via índice único
+        // (UserId, NomeNormalizado) em vez de carregar a tabela inteira — a
+        // validação abaixo cobre o caso comum com mensagem amigável;
+        // TrySaveOrThrowDuplicateAsync é a rede de segurança contra corrida,
+        // que só o índice do banco consegue pegar de fato.
+        private async Task EnsureNomeIsUniqueAsync(string nome, int userId, int? excludeId)
         {
             var normalizado = NameNormalizer.Normalize(nome);
 
             var duplicado = await _context.Products
-                .AnyAsync(p => p.NomeNormalizado == normalizado && (excludeId == null || p.Id != excludeId));
+                .AnyAsync(p => p.UserId == userId && p.NomeNormalizado == normalizado && (excludeId == null || p.Id != excludeId));
 
             if (duplicado)
                 throw new ArgumentException($"A product named \"{nome.Trim()}\" already exists.");
@@ -205,9 +213,10 @@ namespace MuranoApp.Services
             return ex.InnerException is PostgresException { SqlState: "23505" };
         }
 
-        public async Task<bool> DeleteAsync(int id)
+        public async Task<bool> DeleteAsync(int id, int userId, bool isAdmin)
         {
-            var product = await _context.Products.FindAsync(id);
+            var product = await _context.Products
+                .FirstOrDefaultAsync(p => p.Id == id && (isAdmin || p.UserId == userId));
 
             if (product == null)
                 return false;

@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using MuranoApp.Data;
+using MuranoApp.Models;
 
 namespace MuranoApp.Tests
 {
@@ -30,6 +31,17 @@ namespace MuranoApp.Tests
 
             Context = new AppDbContext(options);
             Context.Database.EnsureCreated();
+
+            // Product.UserId/Order.UserId têm FK pra AdminUsers — os testes
+            // usam os ids 1 (usuário comum) e 2 (outro usuário comum) como
+            // donos de cadastro; sem essas linhas, o SQLite (que, diferente
+            // do Postgres aqui, teve a checagem de FK habilitada por
+            // padrão) rejeita qualquer Product/Order com esses ids.
+            Context.AdminUsers.AddRange(
+                new AdminUser { Id = 1, Nome = "Usuário Teste", Email = "user1@teste.com", PasswordHash = "x" },
+                new AdminUser { Id = 2, Nome = "Outro Usuário", Email = "user2@teste.com", PasswordHash = "x" }
+            );
+            Context.SaveChanges();
         }
 
         public void Dispose()

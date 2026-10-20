@@ -68,6 +68,30 @@ namespace MuranoApp.Services
             return user == null ? null : ToResponse(user);
         }
 
+        // Exige a senha atual correta antes de trocar — sem isso, uma sessão
+        // aberta esquecida num computador compartilhado poderia trocar a
+        // senha de qualquer um sem precisar saber a senha original. Sem
+        // confirmação por e-mail (não há provedor de e-mail configurado);
+        // a sessão atual já comprova a identidade.
+        public async Task<bool> ChangePasswordAsync(int userId, ChangePasswordDTO dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.NovaSenha) || dto.NovaSenha.Length < 8)
+                throw new ArgumentException("A nova senha deve ter pelo menos 8 caracteres.");
+
+            var user = await _context.AdminUsers.FindAsync(userId);
+            if (user == null)
+                return false;
+
+            var verification = _hasher.VerifyHashedPassword(user, user.PasswordHash, dto.SenhaAtual);
+            if (verification == PasswordVerificationResult.Failed)
+                throw new ArgumentException("Senha atual incorreta.");
+
+            user.PasswordHash = _hasher.HashPassword(user, dto.NovaSenha);
+            await _context.SaveChangesAsync();
+
+            return true;
+        }
+
         private string GenerateToken(AdminUser user, DateTime expiresAtUtc)
         {
             var jwtSection = _configuration.GetSection("Jwt");
@@ -79,6 +103,7 @@ namespace MuranoApp.Services
                 new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
                 new Claim(ClaimTypes.Email, user.Email),
                 new Claim(ClaimTypes.Name, user.Nome),
+                new Claim(ClaimTypes.Role, user.IsAdmin ? "Admin" : "User"),
             };
 
             var token = new JwtSecurityToken(
@@ -98,7 +123,8 @@ namespace MuranoApp.Services
             {
                 Id = user.Id,
                 Nome = user.Nome,
-                Email = user.Email
+                Email = user.Email,
+                IsAdmin = user.IsAdmin
             };
         }
     }

@@ -12,6 +12,11 @@ namespace MuranoApp.Models
         public string Email { get; set; } = string.Empty;
         public string PasswordHash { get; set; } = string.Empty;
 
+        // Admin ("admin murano") vê e edita produtos/pedidos de qualquer
+        // usuário; um usuário comum só vê os que ele mesmo cadastrou (ver
+        // Product.UserId / Order.UserId e os Services correspondentes).
+        public bool IsAdmin { get; set; }
+
         public DateTime CriadoEm { get; set; } = DateTime.UtcNow;
     }
 }

@@ -21,6 +21,12 @@ namespace MuranoApp.Models
 
         public decimal ValorTotal { get; set; }
 
+        // Dono do cadastro (quem criou o pedido) — usuários comuns só veem/
+        // editam os próprios pedidos; o admin vê todos, ignorando este
+        // campo. Ver OrderService.
+        public int UserId { get; set; }
+        public AdminUser User { get; set; } = null!;
+
         public List<OrderItem> Items { get; set; } = new();
     }
 

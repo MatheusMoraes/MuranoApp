@@ -2,7 +2,7 @@
 
 API em .NET 9 / EF Core / PostgreSQL (Neon) para o sistema de estoque e pedidos da loja Mistério de Murano.
 
-Este documento cobre especificamente a demanda mais recente: **dashboard, índice de nome, filtro de pedidos, rate limiting e testes automatizados**. Para o restante do sistema (autenticação, produtos, categorias, upload de imagens, etc.), veja o código-fonte.
+Este documento cobre as demandas mais recentes: **dashboard, índice de nome, filtro de pedidos, rate limiting, testes automatizados e multiusuário com dono de cadastro**. Para o restante do sistema (autenticação, produtos, categorias, upload de imagens, etc.), veja o código-fonte.
 
 ## Sumário
 
@@ -11,6 +11,7 @@ Este documento cobre especificamente a demanda mais recente: **dashboard, índic
 3. [Filtro e listagem de Pedidos](#3-filtro-e-listagem-de-pedidos)
 4. [Rate limiting](#4-rate-limiting)
 5. [Testes automatizados](#5-testes-automatizados)
+6. [Multiusuário e dono de cadastro](#6-multiusuário-e-dono-de-cadastro)
 
 ---
 
@@ -80,12 +81,12 @@ Novo projeto `MuranoApp.Tests` (xUnit), referenciando `MuranoApp.csproj` e usand
 
 Cada classe de teste abre sua própria conexão SQLite `:memory:` (mantida viva durante o teste via `SqliteContextFixture`, já que o banco `:memory:` do SQLite desaparece quando a conexão fecha) — como o xUnit instancia a classe de teste uma vez por `[Fact]`/`[Theory]`, cada teste roda isolado, sem estado compartilhado entre eles.
 
-**Cobertura (33 testes):**
+**Cobertura (49 testes):**
 - `NameNormalizerTests`: normalização de nome (trim, espaços, caixa).
-- `ProductServiceTests`: nome normalizado preenchido ao criar; rejeição de nome duplicado (ignorando caixa/espaços); permitir manter o próprio nome ao editar; validação de preço de atacado (não pode exceder o varejo, precisa vir com quantidade mínima); categoria inexistente.
+- `ProductServiceTests`: nome normalizado preenchido ao criar; rejeição de nome duplicado (ignorando caixa/espaços); mesmo nome permitido em catálogos de usuários diferentes; permitir manter o próprio nome ao editar; validação de preço de atacado (não pode exceder o varejo, precisa vir com quantidade mínima); categoria inexistente; usuário comum não vê/edita/exclui produto de outro usuário; admin vê/edita qualquer um.
 - `CategoryServiceTests`: nome normalizado preenchido ao criar; rejeição de nome duplicado; exclusão bloqueada quando há produtos associados; exclusão permitida quando não há.
-- `OrderServiceTests`: decremento de estoque ao criar pedido; resolução de preço varejo vs. atacado (abaixo e no limite da quantidade mínima); erro de estoque insuficiente; erro de cliente/produto inexistente; erro quando cliente não tem endereço cadastrado e nenhum é informado; uso do endereço informado no pedido; restauração de estoque ao excluir pedido; exclusão de pedido não quebra quando o produto do item já foi excluído (`ProdutoId` nulo); ajuste de estoque correto ao editar um pedido existente.
-- `DashboardServiceTests`: retorno zerado sem pedidos; ranking de clientes por número de pedidos; produto excluído continua contabilizado no ranking via `NomeProduto`; receita por período rejeita período inválido; `30d` agrupa por dia e ignora pedidos fora da janela; `ano` agrupa por mês.
+- `OrderServiceTests`: decremento de estoque ao criar pedido; resolução de preço varejo vs. atacado (abaixo e no limite da quantidade mínima); erro de estoque insuficiente; erro de cliente/produto inexistente; erro quando cliente não tem endereço cadastrado e nenhum é informado; uso do endereço informado no pedido; restauração de estoque ao excluir pedido; exclusão de pedido não quebra quando o produto do item já foi excluído (`ProdutoId` nulo); ajuste de estoque correto ao editar um pedido existente; usuário comum só vê os próprios pedidos e não exclui pedido de outro usuário; admin vê todos.
+- `DashboardServiceTests`: retorno zerado sem pedidos; ranking de clientes por número de pedidos; produto excluído continua contabilizado no ranking via `NomeProduto`; receita por período rejeita período inválido; `30d` agrupa por dia e ignora pedidos fora da janela; `ano` agrupa por mês; usuário comum só vê dados próprios no dashboard e na receita por período; admin vê de todos.
 
 **Rodando os testes:**
 ```bash
@@ -94,6 +95,27 @@ dotnet test
 
 **Gap conhecido (documentado, não coberto por teste):** a rede de segurança contra corrida na checagem de nome único (`catch (DbUpdateException ex) when (IsUniqueViolation(ex))`) depende de `Npgsql.PostgresException`, específica do Postgres — não é disparada rodando contra SQLite, então esse caminho fica coberto apenas pela validação em memória (testada) e pela garantia estrutural do índice único em produção.
 
+## 6. Multiusuário e dono de cadastro
+
+A aplicação passou a suportar mais de um usuário logado, com dois papéis:
+
+- **Admin** (`IsAdmin = true`): vê e edita produtos e pedidos de **qualquer** usuário, sem restrição.
+- **Usuário comum**: só vê e edita os produtos/pedidos que **ele mesmo** cadastrou.
+
+**Como funciona:**
+- `Product` e `Order` ganharam a coluna `UserId` (dono do cadastro, preenchido automaticamente na criação a partir do usuário autenticado — nunca aceito do corpo da requisição). `Client` e `Category` continuam compartilhados entre todos os usuários (não têm dono).
+- O JWT passou a carregar uma claim de role (`Admin`/`User`), lida via `ClaimsPrincipal.GetUserId()`/`IsAdminUser()` (`Extensions/ClaimsPrincipalExtensions.cs`) em todo controller que precisa filtrar por dono.
+- `ProductService`/`OrderService`: toda consulta (`GetAllAsync`, `GetByIdAsync`) filtra por `UserId` quando o usuário não é admin; `UpdateAsync`/`DeleteAsync` tratam um registro de outro usuário como **inexistente** (404), não como "403 Forbidden" — não revela nem que o registro existe pra quem não tem acesso.
+- `DashboardService` (KPIs, rankings, receita por período) também filtra Pedidos/Produtos por `UserId`; `TotalClientes` fica de fora do filtro de propósito, já que `Client` é compartilhado.
+- **Nome de produto único por catálogo, não mais global**: o índice único passou de `NomeNormalizado` para `(UserId, NomeNormalizado)` — dois usuários podem ter produtos de mesmo nome em catálogos separados.
+- Migration `AddUserOwnership`: adiciona as colunas, faz backfill de todo `Product`/`Order` já existente pro usuário que já estava cadastrado (dados antigos continuam visíveis pra ele), e cria o usuário admin.
+
+**Troca de senha (tela de perfil):** novo endpoint `PUT /api/ChangePassword` (autenticado), exige a senha atual correta antes de trocar — sem confirmação por e-mail (não há provedor configurado); a sessão logada já comprova a identidade. Hash continua PBKDF2 salgado via `PasswordHasher<AdminUser>` do ASP.NET Core, igual ao hash de criação de conta.
+
+No front-end: avatar circular (iniciais do nome) no header, substituindo o botão solto "Sair" — abre um dropdown com nome/e-mail, link pra `/perfil` e "Sair". A tela de perfil (`src/pages/ProfilePage.tsx`) mostra os dados do usuário (com badge "Administrador"/"Usuário") e o formulário de troca de senha.
+
+**Arquivos:** `Models/AdminUser.cs`, `Models/Product.cs`, `Models/Order.cs`, `Data/AppDbContext.cs`, `Extensions/ClaimsPrincipalExtensions.cs`, `Services/AuthService.cs`, `Services/ProductsService.cs`, `Services/OrdersService.cs`, `Services/DashboardService.cs`, `Controllers/AuthController.cs`, `Controllers/ProductsController.cs`, `Controllers/OrdersController.cs`, `Controllers/DashboardController.cs`, `DTOs/ChangePasswordDTO.cs`, `Migrations/20261019220701_AddUserOwnership.cs` (backend); `src/types/auth.ts`, `src/api/auth.ts`, `src/pages/ProfilePage.tsx`, `src/utils/getIniciais.ts`, `src/App.tsx`, `src/index.css` (front-end).
+
 ---
 
-*Documentação gerada para a demanda: dashboard, índice de nome, filtro de pedidos, rate limiting e testes automatizados.*
+*Documentação gerada para as demandas: dashboard, índice de nome, filtro de pedidos, rate limiting, testes automatizados e multiusuário com dono de cadastro.*

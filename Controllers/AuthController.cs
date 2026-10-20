@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using MuranoApp.Data;
 using MuranoApp.DTOs;
+using MuranoApp.Extensions;
 using MuranoApp.Services;
 using System.Security.Claims;
 
@@ -80,6 +81,27 @@ namespace MuranoApp.Controllers
                 return Unauthorized();
 
             return Ok(user);
+        }
+
+        [HttpPut("ChangePassword")]
+        [Authorize]
+        public async Task<IActionResult> ChangePassword(ChangePasswordDTO dto)
+        {
+            var service = new AuthService(_context, _configuration);
+
+            try
+            {
+                var changed = await service.ChangePasswordAsync(User.GetUserId(), dto);
+
+                if (!changed)
+                    return Unauthorized();
+
+                return NoContent();
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
     }
 }

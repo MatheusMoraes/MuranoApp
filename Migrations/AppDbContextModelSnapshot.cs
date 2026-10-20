@@ -37,6 +37,9 @@ namespace MuranoApp.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<bool>("IsAdmin")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Nome")
                         .IsRequired()
                         .HasColumnType("text");
@@ -172,6 +175,9 @@ namespace MuranoApp.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
                     b.Property<decimal>("ValorTotal")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
@@ -179,6 +185,8 @@ namespace MuranoApp.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ClientId");
+
+                    b.HasIndex("UserId");
 
                     b.ToTable("Orders");
                 });
@@ -262,11 +270,14 @@ namespace MuranoApp.Migrations
                     b.Property<int?>("QuantidadeMinimaAtacado")
                         .HasColumnType("integer");
 
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CategoriaId");
 
-                    b.HasIndex("NomeNormalizado")
+                    b.HasIndex("UserId", "NomeNormalizado")
                         .IsUnique();
 
                     b.ToTable("Products");
@@ -280,7 +291,15 @@ namespace MuranoApp.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("MuranoApp.Models.AdminUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.Navigation("Client");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("MuranoApp.Models.OrderItem", b =>
@@ -309,7 +328,15 @@ namespace MuranoApp.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("MuranoApp.Models.AdminUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.Navigation("Categoria");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("MuranoApp.Models.Category", b =>
